@@ -1,0 +1,6 @@
+{
+  "name": "برنامج التنبيه",
+  "description": "نظام داخلي لمتابعة تواريخ انتهاء الرقم المميز وجوازات السفر والوثائق مع تنبيهات ذكية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
