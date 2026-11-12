@@ -15,7 +15,6 @@ import {
   Code2,
   Copy,
   Check,
-  Calendar,
   XCircle,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -26,7 +25,7 @@ import { formatKuwaitDate } from '../utils/date';
 import { translateErrorMessage } from '../utils/errors';
 
 export const NotificationsView: React.FC = () => {
-  const { isAdmin, companyName, user } = useAuth();
+  const { isAdmin, companyName } = useAuth();
   const [logs, setLogs] = useState<NotificationLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +56,6 @@ export const NotificationsView: React.FC = () => {
         .order('sent_at', { ascending: false });
 
       if (fetchErr) {
-        // Table might be empty or column might differ slightly
         console.warn('notifications_log fetch error:', fetchErr);
         setError(translateErrorMessage(fetchErr));
       } else {
@@ -81,17 +79,17 @@ export const NotificationsView: React.FC = () => {
     setTimeout(() => setCopiedIndex(null), 2500);
   };
 
-  // Trigger Edge Function
+  // Trigger Edge Function directly to the emails configured in the database / secrets
   const handleTriggerAlerts = async (isDryRun = false) => {
     setTriggering(true);
     setTriggerResult(null);
 
     try {
-      // 1. Invoke Supabase Edge Function 'daily-expiry-alerts'
+      // Invoke Supabase Edge Function 'daily-expiry-alerts'
       const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
         body: {
           dry_run: isDryRun,
-          test_email: user?.email,
+          force_send: true,
         },
       });
 
@@ -104,9 +102,13 @@ export const NotificationsView: React.FC = () => {
         setPreviewModalOpen(true);
       }
 
+      const recipientsList = data?.recipients?.length
+        ? ` (إلى: ${data.recipients.join(', ')})`
+        : '';
+
       setTriggerResult({
         success: data?.success ?? true,
-        message: data?.message || 'تم تنفيذ دالة التنبيهات بنجاح.',
+        message: (data?.message || 'تم فحص وإرسال التنبيه بنجاح.') + recipientsList,
         warning: data?.warning,
       });
 
@@ -130,7 +132,7 @@ export const NotificationsView: React.FC = () => {
     setPreviewHtml(null);
 
     try {
-      // Try edge function first
+      // Try edge function dry run
       const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
         body: { dry_run: true },
       });
@@ -138,33 +140,23 @@ export const NotificationsView: React.FC = () => {
       if (!fnErr && data?.html_preview) {
         setPreviewHtml(data.html_preview);
       } else {
-        // Client fallback preview querying records_with_status
+        // Fallback preview
         const { data: recs } = await supabase.from('records_with_status').select('*');
         const records = recs || [];
-        const expired = records.filter(
-          (r: any) => r.unique_number_status === 'expired' || r.passport_status === 'expired'
-        );
-        const expiringSoon = records.filter(
-          (r: any) =>
-            (r.unique_number_status === 'expiring_soon' || r.passport_status === 'expiring_soon') &&
-            r.unique_number_status !== 'expired' &&
-            r.passport_status !== 'expired'
-        );
+        const expired = records.filter((r: any) => r.unique_number_status === 'expired');
+        const expiringSoon = records.filter((r: any) => r.unique_number_status === 'expiring_soon');
 
-        const mockHtml = `
+        const fallbackHtml = `
           <div style="font-family: 'Cairo', Tahoma, sans-serif; direction: rtl; padding: 24px; color: #0F172A;">
             <div style="background: #0B3B38; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-              <h2 style="margin: 0;">${companyName || 'برنامج التنبيه'}</h2>
-              <p style="margin: 5px 0 0; font-size: 14px; opacity: 0.9;">تقرير تنبيهات انتهاء الصلاحية اليومي</p>
+              <h2 style="margin: 0;">${companyName || 'notifyme'}</h2>
+              <p style="margin: 5px 0 0; font-size: 14px; opacity: 0.9;">تقرير تنبيهات الرقم المميز (الانتهاء خلال شهر)</p>
             </div>
-            <p><strong>وثائق منتهية:</strong> ${expired.length}</p>
-            <p><strong>وثائق قاربت على الانتهاء:</strong> ${expiringSoon.length}</p>
-            <div style="margin-top: 20px; padding: 15px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
-              <p style="font-size: 13px; color: #64748B; margin: 0;">هذا نموذج مصغر للمعاينة الحية لقالب البريد الصادر من دالة Edge Function.</p>
-            </div>
+            <p><strong>أرقام مميزة تنتهي خلال شهر:</strong> ${expiringSoon.length}</p>
+            <p><strong>أرقام مميزة منتهية:</strong> ${expired.length}</p>
           </div>
         `;
-        setPreviewHtml(mockHtml);
+        setPreviewHtml(fallbackHtml);
       }
     } catch (err: any) {
       setPreviewHtml(`<p style="color: red; padding: 20px;">تعذر تحميل المعاينة: ${err.message}</p>`);
@@ -192,12 +184,12 @@ select cron.schedule(
 
   return (
     <div className="space-y-6">
-      {/* Top Header */}
+      {/* Top Header with Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">سجل الإشعارات والتنبيهات اليومية</h2>
+          <h2 className="text-2xl font-bold text-slate-900">سجل الإشعارات والتنبيهات</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            إدارة دالة التنبيهات البريدية (Edge Function) ومراجعة العمليات المسجلة
+            متابعة دقيقة لجميع رسائل البريد الإلكتروني المرسلة للمسؤولين
           </p>
         </div>
 
@@ -212,22 +204,33 @@ select cron.schedule(
             <span className="hidden sm:inline">تحديث السجل</span>
           </button>
 
+          <button
+            type="button"
+            onClick={handlePreviewEmail}
+            className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-[#0F766E] bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors cursor-pointer"
+          >
+            <Eye className="w-4 h-4" />
+            <span>معاينة القالب</span>
+          </button>
+
+          {/* Top Test Button as requested: "خلي من فوق بوتون ب test/ مثلا" */}
           {isAdmin && (
             <button
               type="button"
               onClick={() => handleTriggerAlerts(false)}
               disabled={triggering}
               className="flex items-center gap-2 min-h-[44px] px-5 py-2.5 bg-[#0F766E] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+              title="إرسال تنبيه تجريبي للمسؤولين المسجلين في قاعدة البيانات"
             >
               {triggering ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>جاري الإرسال...</span>
+                  <span>جاري الفحص والإرسال...</span>
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>إرسال التنبيه الآن للمسؤولين</span>
+                  <span>اختبار التنبيه (Test)</span>
                 </>
               )}
             </button>
@@ -265,32 +268,19 @@ select cron.schedule(
         </div>
       )}
 
-      {/* Admin Edge Function Command Center Card */}
+      {/* Edge Function Info Card */}
       <div className="bg-white border border-[#E2E8F0] rounded-[12px] p-6 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-teal-50 text-[#0F766E] rounded-xl">
-              <Mail className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                دالة التنبيهات البريدية اليومية (Edge Function: daily-expiry-alerts)
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                تفحص قاعدة البيانات يومياً وترسل تقريراً مفصلاً باللغة العربية إلى جميع المسؤولين.
-              </p>
-            </div>
+        <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+          <div className="p-3 bg-teal-50 text-[#0F766E] rounded-xl">
+            <Mail className="w-6 h-6" />
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePreviewEmail}
-              className="flex items-center gap-1.5 min-h-[40px] px-3.5 py-2 text-xs font-bold text-[#0F766E] bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg transition-colors cursor-pointer"
-            >
-              <Eye className="w-4 h-4" />
-              <span>معاينة قالب البريد</span>
-            </button>
+          <div>
+            <h3 className="text-base font-bold text-slate-900">
+              دالة التنبيهات الصباحية (Edge Function: daily-expiry-alerts)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              تفحص النظام يومياً وترسل بريداً بأسماء الأشخاص الذين ينتهي رقمهم المميز خلال شهر (٣٠ يوماً) أو المنتهية بالفعل إلى إيميلات المسؤولين المسجلة في قاعدة البيانات.
+            </p>
           </div>
         </div>
 
@@ -333,10 +323,10 @@ select cron.schedule(
         <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="w-5 h-5 text-slate-600" />
-            <h3 className="text-base font-bold text-slate-900">سجل الإشعارات السابقة</h3>
+            <h3 className="text-base font-bold text-slate-900">سجل الإيميلات المرسلة للمسؤولين</h3>
           </div>
           <span className="text-xs text-slate-500 font-mono tabular-nums">
-            {logs.length} سجلات
+            {logs.length} عمليات مسجلة
           </span>
         </div>
 
@@ -346,7 +336,7 @@ select cron.schedule(
               <tr>
                 <th scope="col" className="px-5 py-3.5 whitespace-nowrap">وقت الإرسال</th>
                 <th scope="col" className="px-5 py-3.5 whitespace-nowrap">نوع الإشعار</th>
-                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">المستلم</th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">الإيميلات التي أُرسل إليها</th>
                 <th scope="col" className="px-5 py-3.5 whitespace-nowrap">الحالة</th>
                 <th scope="col" className="px-5 py-3.5">الملخص والنتائج</th>
               </tr>
@@ -357,7 +347,7 @@ select cron.schedule(
                   <tr key={i} className="animate-pulse">
                     <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-28" /></td>
                     <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-24" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-36" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-44" /></td>
                     <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-16" /></td>
                     <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-64" /></td>
                   </tr>
@@ -368,24 +358,19 @@ select cron.schedule(
                     <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-500">
                       <FileSpreadsheet className="w-10 h-10 text-slate-300 mb-2" />
                       <p className="text-sm font-bold text-slate-800 mb-1">لا توجد إشعارات مسجلة بعد</p>
-                      <p className="text-xs text-slate-500 mb-3">
-                        سيتم تسجيل أي إشعار يتم إرساله تلقائياً أو يدوياً في جدول notifications_log.
+                      <p className="text-xs text-slate-500">
+                        سيتم تسجيل أي إشعار يتم إرساله تلقائياً عبر الجدولة الصباحية أو يدوياً عبر زر الاختبار أعلاه.
                       </p>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => handleTriggerAlerts(false)}
-                          className="px-3.5 py-1.5 bg-[#0F766E] text-white text-xs font-bold rounded-lg hover:bg-teal-800"
-                        >
-                          إرسال أول تنبيه الآن
-                        </button>
-                      )}
                     </div>
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => {
-                  const isSuccess = log.status === 'sent' || log.status === 'success' || log.status === 'simulated_success';
+                  const isSuccess =
+                    log.status === 'sent' ||
+                    log.status === 'success' ||
+                    log.status === 'simulated_success';
+
                   return (
                     <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
                       {/* وقت الإرسال */}
@@ -395,12 +380,28 @@ select cron.schedule(
 
                       {/* نوع الإشعار */}
                       <td className="px-5 py-4 text-xs font-bold text-slate-800 whitespace-nowrap">
-                        {log.notification_type === 'daily_expiry_alert' ? 'تنبيه يومي بالصلاحية' : log.notification_type || 'تنبيه بريدي'}
+                        {log.notification_type === 'daily_expiry_alert'
+                          ? 'تنبيه انتهاء الرقم المميز'
+                          : log.notification_type || 'تنبيه بريدي'}
                       </td>
 
-                      {/* المستلم */}
-                      <td className="px-5 py-4 font-mono text-xs text-slate-700 whitespace-nowrap" dir="ltr">
-                        {log.recipient_email || 'المسؤولون (Admin)'}
+                      {/* المستلمون: عرض الإيميلات بوضوح */}
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        <div className="flex flex-wrap gap-1.5 max-w-md" dir="ltr">
+                          {log.recipient_email ? (
+                            log.recipient_email.split(',').map((email, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50/80 text-teal-900 border border-teal-200 rounded-md text-xs font-mono font-medium shadow-2xs"
+                              >
+                                <Mail className="w-3.5 h-3.5 text-[#0F766E]" />
+                                <span>{email.trim()}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-slate-400">إيميلات المسؤولين (Admin)</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* الحالة */}
@@ -448,7 +449,7 @@ select cron.schedule(
               <button
                 type="button"
                 onClick={() => setPreviewModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200"
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer"
               >
                 ✕
               </button>
@@ -471,11 +472,11 @@ select cron.schedule(
             </div>
 
             <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-              <span>القالب مهيأ لدعم جميع عملاء البريد مع أرقام وتواريخ منسقة بتوقيت الكويت.</span>
+              <span>القالب مهيأ لتقرير الرقم المميز للأشخاص الذين ينتهي رقمهم خلال شهر أو منتهي.</span>
               <button
                 type="button"
                 onClick={() => setPreviewModalOpen(false)}
-                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded hover:bg-slate-100 text-slate-700"
+                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
               >
                 إغلاق
               </button>

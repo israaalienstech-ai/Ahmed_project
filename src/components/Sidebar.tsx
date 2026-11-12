@@ -8,8 +8,8 @@ import { Bell, Users, LogOut, ShieldCheck, User as UserIcon, PlusCircle, Mail } 
 import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
-  currentTab: 'alerts' | 'records' | 'notifications';
-  onSelectTab: (tab: 'alerts' | 'records' | 'notifications') => void;
+  currentTab: 'dashboard' | 'records' | 'notifications';
+  onSelectTab: (tab: 'dashboard' | 'records' | 'notifications') => void;
   onAddNewRecord: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
@@ -42,12 +42,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Company Header */}
         <div className="flex flex-col justify-center px-6 py-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-400/30 text-teal-300 shrink-0 font-bold text-lg">
-              {companyName ? companyName.charAt(0) : 'ت'}
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-400/30 text-teal-300 shrink-0 font-bold text-lg font-mono">
+              {companyName ? companyName.charAt(0).toUpperCase() : 'N'}
             </div>
             <div className="overflow-hidden">
               <h1 className="text-lg font-bold text-white tracking-wide truncate">
-                {companyName || 'برنامج التنبيه'}
+                {companyName || 'notifyme'}
               </h1>
               <span className="text-[11px] text-teal-200/70 block">نظام تنبيهات الصلاحية</span>
             </div>
@@ -74,11 +74,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => {
-              onSelectTab('alerts');
+              onSelectTab('dashboard');
               if (onCloseMobile) onCloseMobile();
             }}
             className={`w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
-              currentTab === 'alerts'
+              currentTab === 'dashboard'
                 ? 'bg-white/15 text-white font-bold shadow-xs'
                 : 'text-white/80 hover:bg-white/10 hover:text-white'
             }`}

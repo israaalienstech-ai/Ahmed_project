@@ -68,7 +68,7 @@ VITE_SUPABASE_ANON_KEY="your-anon-key"`}
             <KeyRound className="w-8 h-8" />
           </div>
           {/* Default app name per RLS rule prior to login */}
-          <h1 className="text-2xl font-bold text-slate-900 mb-1">برنامج التنبيه</h1>
+          <h1 className="text-2xl font-bold text-slate-900 mb-1" dir="ltr">notifyme</h1>
           <p className="text-sm text-slate-500">نظام إدارة ومتابعة تواريخ الصلاحية والوثائق</p>
         </div>
 

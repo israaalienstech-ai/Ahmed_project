@@ -28,13 +28,13 @@ import { translateErrorMessage } from '../utils/errors';
 interface DashboardViewProps {
   onAddNew: () => void;
   onEdit: (id: string) => void;
-  activeSidebarTab: 'alerts' | 'records';
+  activeSidebarTab: 'dashboard' | 'records' | 'alerts';
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   onAddNew,
   onEdit,
-  activeSidebarTab: _activeSidebarTab,
+  activeSidebarTab,
 }) => {
   const { isAdmin } = useAuth();
   const [records, setRecords] = useState<RecordItem[]>([]);
@@ -194,9 +194,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Top Action Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">لوحة التنبيهات وإدارة السجلات</h2>
+          <h2 className="text-2xl font-bold text-slate-900">
+            {activeSidebarTab === 'records' ? 'إدارة السجلات والبيانات' : 'لوحة التنبيهات والإحصائيات'}
+          </h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            متابعة دقيقة ومباشرة لتواريخ انتهاء الرقم المميز وجوازات السفر
+            {activeSidebarTab === 'records'
+              ? 'قائمة كاملة بجميع السجلات ومتابعة وثائق الرقم المميز والجوازات والبحث والتعديل'
+              : 'متابعة دقيقة ومباشرة لتواريخ انتهاء الرقم المميز وجوازات السفر'}
           </p>
         </div>
 

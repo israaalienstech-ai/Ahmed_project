@@ -15,31 +15,37 @@ import { Menu } from 'lucide-react';
 type AppRoute =
   | { path: 'login' }
   | { path: 'dashboard' }
+  | { path: 'records' }
+  | { path: 'notifications' }
   | { path: 'record_new' }
   | { path: 'record_edit'; id: string };
 
 function parseCurrentRoute(): AppRoute {
-  const pathname = window.location.pathname;
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   if (pathname === '/login') return { path: 'login' };
   if (pathname === '/records/new') return { path: 'record_new' };
   if (pathname.startsWith('/records/')) {
     const id = pathname.replace('/records/', '').trim();
     if (id) return { path: 'record_edit', id };
   }
+  if (pathname === '/records') return { path: 'records' };
+  if (pathname === '/notifications') return { path: 'notifications' };
   return { path: 'dashboard' };
 }
 
 function MainAppContent() {
   const { user, loading, companyName } = useAuth();
   const [route, setRoute] = useState<AppRoute>(parseCurrentRoute());
-  const [activeTab, setActiveTab] = useState<'alerts' | 'records' | 'notifications'>('alerts');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Sync route state with browser history
   const navigateTo = (newRoute: AppRoute) => {
     setRoute(newRoute);
-    let url = '/';
+    let url = '/dashboard';
     if (newRoute.path === 'login') url = '/login';
+    else if (newRoute.path === 'dashboard') url = '/dashboard';
+    else if (newRoute.path === 'records') url = '/records';
+    else if (newRoute.path === 'notifications') url = '/notifications';
     else if (newRoute.path === 'record_new') url = '/records/new';
     else if (newRoute.path === 'record_edit') url = `/records/${newRoute.id}`;
 
@@ -88,15 +94,24 @@ function MainAppContent() {
     );
   }
 
+  // Determine current active tab for sidebar highlight
+  const currentSidebarTab =
+    route.path === 'notifications'
+      ? 'notifications'
+      : route.path === 'records'
+      ? 'records'
+      : 'dashboard';
+
   // Authenticated layout
   return (
     <div className="min-h-screen bg-[#F4F6F8] flex flex-col lg:flex-row text-slate-900 font-sans">
       {/* Right-side persistent Sidebar */}
       <Sidebar
-        currentTab={activeTab}
+        currentTab={currentSidebarTab}
         onSelectTab={(tab) => {
-          setActiveTab(tab);
-          navigateTo({ path: 'dashboard' });
+          if (tab === 'notifications') navigateTo({ path: 'notifications' });
+          else if (tab === 'records') navigateTo({ path: 'records' });
+          else navigateTo({ path: 'dashboard' });
         }}
         onAddNewRecord={() => navigateTo({ path: 'record_new' })}
         isOpenMobile={mobileSidebarOpen}
@@ -108,8 +123,8 @@ function MainAppContent() {
         {/* Top Header for Mobile/Tablet */}
         <header className="flex lg:hidden items-center justify-between px-4 py-3.5 bg-[#0B3B38] text-white sticky top-0 z-30 shadow-md">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-teal-500/20 border border-teal-400/30 flex items-center justify-center text-teal-300 font-bold text-sm">
-              {companyName ? companyName.charAt(0) : 'ت'}
+            <div className="w-7 h-7 rounded-lg bg-teal-500/20 border border-teal-400/30 flex items-center justify-center text-teal-300 font-bold text-sm font-mono">
+              {companyName ? companyName.charAt(0).toUpperCase() : 'N'}
             </div>
             <span className="font-bold text-base truncate">{companyName}</span>
           </div>
@@ -125,13 +140,21 @@ function MainAppContent() {
 
         {/* View Port Container */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {route.path === 'dashboard' && activeTab === 'notifications' && (
+          {route.path === 'notifications' && (
             <NotificationsView />
           )}
 
-          {route.path === 'dashboard' && activeTab !== 'notifications' && (
+          {route.path === 'dashboard' && (
             <DashboardView
-              activeSidebarTab={activeTab}
+              activeSidebarTab="dashboard"
+              onAddNew={() => navigateTo({ path: 'record_new' })}
+              onEdit={(id) => navigateTo({ path: 'record_edit', id })}
+            />
+          )}
+
+          {route.path === 'records' && (
+            <DashboardView
+              activeSidebarTab="records"
               onAddNew={() => navigateTo({ path: 'record_new' })}
               onEdit={(id) => navigateTo({ path: 'record_edit', id })}
             />
@@ -140,16 +163,16 @@ function MainAppContent() {
           {route.path === 'record_new' && (
             <RecordFormView
               recordId={null}
-              onBack={() => navigateTo({ path: 'dashboard' })}
-              onSaved={() => navigateTo({ path: 'dashboard' })}
+              onBack={() => navigateTo({ path: 'records' })}
+              onSaved={() => navigateTo({ path: 'records' })}
             />
           )}
 
           {route.path === 'record_edit' && (
             <RecordFormView
               recordId={route.id}
-              onBack={() => navigateTo({ path: 'dashboard' })}
-              onSaved={() => navigateTo({ path: 'dashboard' })}
+              onBack={() => navigateTo({ path: 'records' })}
+              onSaved={() => navigateTo({ path: 'records' })}
             />
           )}
         </main>
