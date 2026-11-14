@@ -49,10 +49,18 @@ export interface AppSettings {
 
 export interface NotificationLogItem {
   id: string;
-  recipient_email?: string;
-  notification_type?: string;
-  status?: string;
-  summary?: string;
-  sent_at?: string;
-  created_at?: string;
+  record_id: string;
+  kind: 'unique_number' | 'passport';
+  channel: 'email' | 'whatsapp';
+  target_expiry: string;
+  status: 'sent' | 'failed';
+  error?: string | null;
+  sent_at: string;
+  records?: {
+    id: string;
+    full_name?: string | null;
+    name?: string | null;
+    unique_number?: string | null;
+    passport_number?: string | null;
+  } | null;
 }

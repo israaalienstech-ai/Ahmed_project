@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   isAdmin: false,
-  companyName: 'notifyme',
+  companyName: "A'system",
   login: async () => ({ success: false }),
   logout: async () => {},
   refreshProfileAndSettings: async () => {},
@@ -35,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [companyName, setCompanyName] = useState('notifyme');
+  const [companyName, setCompanyName] = useState("A'system");
 
   const fetchUserData = useCallback(async (currentUser: User) => {
     try {
@@ -60,10 +60,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .limit(1)
         .maybeSingle();
 
-      if (!settingsErr && settingsData && settingsData.company_name) {
+      if (
+        !settingsErr &&
+        settingsData &&
+        settingsData.company_name &&
+        settingsData.company_name !== 'notifyme' &&
+        settingsData.company_name !== 'برنامج التنبيه'
+      ) {
         setCompanyName(settingsData.company_name);
       } else {
-        setCompanyName('notifyme');
+        setCompanyName("A'system");
       }
     } catch (err) {
       console.warn('Failed to fetch profile or settings:', err);
@@ -98,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchUserData(newSession.user);
       } else {
         setIsAdmin(false);
-        setCompanyName('notifyme');
+        setCompanyName("A'system");
       }
       setLoading(false);
     });
@@ -140,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setSession(null);
       setIsAdmin(false);
-      setCompanyName('notifyme');
+      setCompanyName("A'system");
     }
   };
 

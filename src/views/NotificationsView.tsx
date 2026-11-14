@@ -12,25 +12,41 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  Code2,
-  Copy,
-  Check,
   XCircle,
   FileSpreadsheet,
+  MessageCircle,
+  User,
+  Bell,
+  BellRing,
+  Search,
+  Filter,
+  X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-import { NotificationLogItem } from '../types';
+import { usePreferences } from '../context/PreferencesContext';
+import { NotificationLogItem, RecordItem } from '../types';
 import { formatKuwaitDate } from '../utils/date';
 import { translateErrorMessage } from '../utils/errors';
+import {
+  buildExpiryAlertMessage,
+  filterExact30DayCivilIdRecords,
+  getDeviceNotificationPermission,
+  isDeviceNotificationsEnabled,
+  requestDeviceNotificationPermission,
+  setDeviceNotificationsEnabled,
+  showDeviceNotification,
+} from '../utils/deviceNotifications';
 
 export const NotificationsView: React.FC = () => {
   const { isAdmin, companyName } = useAuth();
+  const { lang } = usePreferences();
+  const isAr = lang === 'ar';
+
   const [logs, setLogs] = useState<NotificationLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Triggering Edge Function
   const [triggering, setTriggering] = useState(false);
   const [triggerResult, setTriggerResult] = useState<{
     success: boolean;
@@ -38,13 +54,18 @@ export const NotificationsView: React.FC = () => {
     warning?: string;
   } | null>(null);
 
-  // Email Preview Modal
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Edge Function deploy snippet copy state
-  const [copiedIndex, setCopiedIndex] = useState<string | null>(null);
+  const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'failed'>('all');
+  const [logChannelFilter, setLogChannelFilter] = useState<'all' | 'email' | 'whatsapp'>('all');
+  const [devicePermission, setDevicePermission] = useState<NotificationPermission | 'unsupported'>(() =>
+    getDeviceNotificationPermission()
+  );
+  const [deviceNotifOn, setDeviceNotifOn] = useState<boolean>(() => isDeviceNotificationsEnabled());
+  const [sendingDeviceTest, setSendingDeviceTest] = useState(false);
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -52,40 +73,49 @@ export const NotificationsView: React.FC = () => {
     try {
       const { data, error: fetchErr } = await supabase
         .from('notifications_log')
-        .select('*')
+        .select(
+          `
+          id,
+          record_id,
+          kind,
+          channel,
+          target_expiry,
+          status,
+          error,
+          sent_at,
+          records (
+            id,
+            full_name,
+            name,
+            unique_number,
+            passport_number
+          )
+        `
+        )
         .order('sent_at', { ascending: false });
 
       if (fetchErr) {
         console.warn('notifications_log fetch error:', fetchErr);
-        setError(translateErrorMessage(fetchErr));
+        setError(translateErrorMessage(fetchErr, lang));
       } else {
-        setLogs(data || []);
+        setLogs((data as unknown as NotificationLogItem[]) || []);
       }
     } catch (err: any) {
-      setError(translateErrorMessage(err));
+      setError(translateErrorMessage(err, lang));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
 
-  // Copy helper
-  const handleCopy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(id);
-    setTimeout(() => setCopiedIndex(null), 2500);
-  };
-
-  // Trigger Edge Function directly to the emails configured in the database / secrets
   const handleTriggerAlerts = async (isDryRun = false) => {
     setTriggering(true);
     setTriggerResult(null);
 
     try {
-      // Invoke Supabase Edge Function 'daily-expiry-alerts'
       const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
         body: {
           dry_run: isDryRun,
@@ -103,36 +133,115 @@ export const NotificationsView: React.FC = () => {
       }
 
       const recipientsList = data?.recipients?.length
-        ? ` (إلى: ${data.recipients.join(', ')})`
+        ? ` (${isAr ? 'إلى' : 'To'}: ${data.recipients.join(', ')})`
         : '';
+
+      // Mirror the exact same message as an OS notification on desktop/phone if enabled
+      if (!isDryRun && isDeviceNotificationsEnabled() && data?.notification_payload) {
+        await showDeviceNotification({
+          title: data.notification_payload.title,
+          body: data.notification_payload.body,
+          url: '/notifications',
+          dir: isAr ? 'rtl' : 'ltr',
+          lang,
+        });
+      }
 
       setTriggerResult({
         success: data?.success ?? true,
-        message: (data?.message || 'تم فحص وإرسال التنبيه بنجاح.') + recipientsList,
+        message:
+          (data?.message ||
+            (isAr ? 'تم فحص وإرسال التنبيه بنجاح.' : 'Alert check and send completed.')) +
+          recipientsList,
         warning: data?.warning,
       });
 
-      // Refresh log
       await fetchLogs();
     } catch (err: any) {
       console.error('Edge Function trigger error:', err);
       setTriggerResult({
         success: false,
-        message: translateErrorMessage(err),
+        message: translateErrorMessage(err, lang),
       });
     } finally {
       setTriggering(false);
     }
   };
 
-  // Preview Email directly
+  const handleEnableDeviceNotifications = async () => {
+    const perm = await requestDeviceNotificationPermission();
+    setDevicePermission(perm);
+    const enabled = perm === 'granted';
+    setDeviceNotifOn(enabled);
+    if (enabled) {
+      await handleSendTestDeviceNotification();
+    }
+  };
+
+  const handleToggleDevicePref = () => {
+    const next = !deviceNotifOn;
+    setDeviceNotificationsEnabled(next);
+    setDeviceNotifOn(next);
+  };
+
+  const handleSendTestDeviceNotification = async () => {
+    setSendingDeviceTest(true);
+    try {
+      if (getDeviceNotificationPermission() !== 'granted') {
+        const perm = await requestDeviceNotificationPermission();
+        setDevicePermission(perm);
+        if (perm !== 'granted') {
+          setSendingDeviceTest(false);
+          return;
+        }
+        setDeviceNotifOn(true);
+      }
+
+      const { data: recs } = await supabase.from('records_with_status').select('*');
+      const allRecords = (recs || []) as RecordItem[];
+      const exact30 = filterExact30DayCivilIdRecords(allRecords);
+      const fallbackUpcoming = allRecords.filter(
+        (r) =>
+          typeof r.unique_number_days_left === 'number' &&
+          r.unique_number_days_left >= 0 &&
+          r.unique_number_days_left <= 30
+      );
+
+      const targetRecords = exact30.length > 0 ? exact30 : fallbackUpcoming;
+      const payload = buildExpiryAlertMessage(targetRecords, companyName || "A'system", lang);
+      await showDeviceNotification(payload);
+    } finally {
+      setSendingDeviceTest(false);
+    }
+  };
+
+  const filteredLogs = React.useMemo(() => {
+    const query = logSearchTerm.toLowerCase().trim();
+    return logs.filter((log) => {
+      if (logStatusFilter !== 'all' && log.status !== logStatusFilter) return false;
+      if (logChannelFilter !== 'all' && log.channel !== logChannelFilter) return false;
+      if (!query) return true;
+
+      const personName = (log.records?.full_name || log.records?.name || '').toLowerCase();
+      const civilId = (log.records?.unique_number || '').toLowerCase();
+      const passportNum = (log.records?.passport_number || '').toLowerCase();
+      const errorText = (log.error || '').toLowerCase();
+
+      return (
+        personName.includes(query) ||
+        civilId.includes(query) ||
+        passportNum.includes(query) ||
+        errorText.includes(query)
+      );
+    });
+  }, [logs, logSearchTerm, logStatusFilter, logChannelFilter]);
+
   const handlePreviewEmail = async () => {
     setPreviewLoading(true);
     setPreviewModalOpen(true);
     setPreviewHtml(null);
 
     try {
-      // Try edge function dry run
       const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
         body: { dry_run: true },
       });
@@ -140,291 +249,494 @@ export const NotificationsView: React.FC = () => {
       if (!fnErr && data?.html_preview) {
         setPreviewHtml(data.html_preview);
       } else {
-        // Fallback preview
         const { data: recs } = await supabase.from('records_with_status').select('*');
         const records = recs || [];
-        const expired = records.filter((r: any) => r.unique_number_status === 'expired');
-        const expiringSoon = records.filter((r: any) => r.unique_number_status === 'expiring_soon');
+        const exact30 = records.filter((r: any) => r.unique_number_days_left === 30);
+        const upcoming = records.filter(
+          (r: any) =>
+            typeof r.unique_number_days_left === 'number' &&
+            r.unique_number_days_left >= 0 &&
+            r.unique_number_days_left <= 30
+        );
+
+        const targetList = exact30.length > 0 ? exact30 : upcoming;
+        const rowsList = targetList
+          .map(
+            (r: any) => `
+            <li style="padding: 10px 14px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; color: #0F172A;">${r.full_name || r.name || '—'}</span>
+              <span style="font-size: 12px; color: #92400E; background: #FEF3C7; padding: 3px 10px; border-radius: 6px;">
+                ${
+                  isAr
+                    ? `متبقٍ ${r.unique_number_days_left ?? 30} يوماً على انتهاء الرقم المدني`
+                    : `${r.unique_number_days_left ?? 30} days left on Civil ID`
+                }
+              </span>
+            </li>
+          `
+          )
+          .join('');
 
         const fallbackHtml = `
-          <div style="font-family: 'Cairo', Tahoma, sans-serif; direction: rtl; padding: 24px; color: #0F172A;">
-            <div style="background: #0B3B38; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-              <h2 style="margin: 0;">${companyName || 'notifyme'}</h2>
-              <p style="margin: 5px 0 0; font-size: 14px; opacity: 0.9;">تقرير تنبيهات الرقم المميز (الانتهاء خلال شهر)</p>
+          <div style="font-family: 'IBM Plex Sans Arabic', 'Nunito Sans', Tahoma, sans-serif; direction: ${isAr ? 'rtl' : 'ltr'}; padding: 24px; color: #0F172A;">
+            <div style="background: #0B3B38; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+              <h2 style="margin: 0; font-size: 20px;">${companyName || "A'system"}</h2>
+              <p style="margin: 6px 0 0; font-size: 13px; color: #A7F3D0;">${
+                isAr
+                  ? 'الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً'
+                  : 'People with 30 days left before Civil ID expiry'
+              }</p>
             </div>
-            <p><strong>أرقام مميزة تنتهي خلال شهر:</strong> ${expiringSoon.length}</p>
-            <p><strong>أرقام مميزة منتهية:</strong> ${expired.length}</p>
+            ${
+              targetList.length > 0
+                ? `<ul style="list-style: none; padding: 0; margin: 0; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden;">${rowsList}</ul>`
+                : `<p style="color: #166534; background: #F0FDF4; padding: 14px; border-radius: 8px; border: 1px solid #BBF7D0;">${
+                    isAr
+                      ? 'لا يوجد أشخاص متبقٍ على انتهاء رقمهم المدني ٣٠ يوماً حالياً.'
+                      : 'No people currently have 30 days left before Civil ID expiry.'
+                  }</p>`
+            }
           </div>
         `;
         setPreviewHtml(fallbackHtml);
       }
     } catch (err: any) {
-      setPreviewHtml(`<p style="color: red; padding: 20px;">تعذر تحميل المعاينة: ${err.message}</p>`);
+      setPreviewHtml(
+        `<p style="color: red; padding: 20px;">${
+          isAr ? 'تعذر تحميل المعاينة:' : 'Failed to load preview:'
+        } ${err.message}</p>`
+      );
     } finally {
       setPreviewLoading(false);
     }
   };
-
-  const cronSql = `-- جدول زمني يومي في تمام 8:00 صباحاً بتوقيت الكويت (05:00 UTC)
-select cron.schedule(
-  'send-daily-expiry-alerts',
-  '0 5 * * *',
-  $$
-  select
-    net.http_post(
-      url := 'https://' || current_setting('app.settings.project_ref', true) || '.supabase.co/functions/v1/daily-expiry-alerts',
-      headers := jsonb_build_object(
-        'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'service_role_key' limit 1)
-      ),
-      body := '{}'::jsonb
-    ) as request_id;
-  $$
-);`;
 
   return (
     <div className="space-y-6">
       {/* Top Header with Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">سجل الإشعارات والتنبيهات</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            متابعة دقيقة لجميع رسائل البريد الإلكتروني المرسلة للمسؤولين
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            {isAr ? 'سجل الإشعارات والتنبيهات' : 'Notifications & Email Log'}
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            {isAr
+              ? 'سجل التنبيهات المرسلة قبل انتهاء صلاحية الرقم المدني بـ ٣٠ يوماً وحالة الإرسال'
+              : 'History of Civil ID alerts sent 30 days before expiry'}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             type="button"
             onClick={fetchLogs}
             disabled={loading}
-            className="flex items-center gap-2 min-h-[44px] px-3.5 py-2 bg-white border border-[#E2E8F0] rounded-xl text-slate-700 hover:bg-slate-50 font-medium text-sm transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-2 min-h-[44px] px-3.5 py-2 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium text-sm transition-colors shadow-xs cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0F766E]' : ''}`} />
-            <span className="hidden sm:inline">تحديث السجل</span>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0F766E] dark:text-teal-400' : ''}`} />
+            <span className="hidden sm:inline">{isAr ? 'تحديث السجل' : 'Refresh'}</span>
           </button>
 
           <button
             type="button"
             onClick={handlePreviewEmail}
-            className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-[#0F766E] bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-xl transition-colors cursor-pointer"
           >
             <Eye className="w-4 h-4" />
-            <span>معاينة القالب</span>
+            <span>{isAr ? 'معاينة القالب' : 'Preview Template'}</span>
           </button>
 
-          {/* Top Test Button as requested: "خلي من فوق بوتون ب test/ مثلا" */}
           {isAdmin && (
             <button
               type="button"
               onClick={() => handleTriggerAlerts(false)}
               disabled={triggering}
               className="flex items-center gap-2 min-h-[44px] px-5 py-2.5 bg-[#0F766E] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
-              title="إرسال تنبيه تجريبي للمسؤولين المسجلين في قاعدة البيانات"
+              title={isAr ? 'اختبار فحص وإرسال تنبيه ٣٠ يوماً للمسؤولين' : 'Test alert check & send'}
             >
               {triggering ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>جاري الفحص والإرسال...</span>
+                  <span>{isAr ? 'جاري الفحص والإرسال...' : 'Sending...'}</span>
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>اختبار التنبيه (Test)</span>
+                  <span>{isAr ? 'اختبار التنبيه (Test)' : 'Test Alert'}</span>
                 </>
               )}
             </button>
           )}
         </div>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-3 p-4 bg-[#FEE2E2] dark:bg-red-950/60 border border-[#FECACA] dark:border-red-800 rounded-xl text-sm text-red-900 dark:text-red-200">
+          <AlertTriangle className="w-5 h-5 text-[#B91C1C] dark:text-red-400 shrink-0" />
+          <div className="flex-1 font-medium">{error}</div>
+          <button
+            type="button"
+            onClick={fetchLogs}
+            className="text-xs font-bold text-red-900 dark:text-red-200 underline hover:no-underline cursor-pointer"
+          >
+            {isAr ? 'إعادة المحاولة' : 'Retry'}
+          </button>
+        </div>
+      )}
 
       {/* Result feedback notification */}
       {triggerResult && (
         <div
           className={`flex items-start gap-3 p-4 rounded-xl border text-sm ${
             triggerResult.success
-              ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-              : 'bg-red-50 text-red-900 border-red-200'
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+              : 'bg-red-50 dark:bg-red-950/50 text-red-900 dark:text-red-200 border-red-200 dark:border-red-800'
           }`}
         >
           {triggerResult.success ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           ) : (
-            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
           )}
           <div className="flex-1 space-y-1">
             <p className="font-bold">{triggerResult.message}</p>
-            {triggerResult.warning && (
-              <p className="text-xs opacity-90">{triggerResult.warning}</p>
-            )}
+            {triggerResult.warning && <p className="text-xs opacity-90">{triggerResult.warning}</p>}
           </div>
           <button
             type="button"
             onClick={() => setTriggerResult(null)}
-            className="text-xs font-bold underline hover:no-underline"
+            className="text-xs font-bold underline hover:no-underline cursor-pointer"
           >
-            إغلاق
+            {isAr ? 'إغلاق' : 'Dismiss'}
           </button>
         </div>
       )}
 
-      {/* Edge Function Info Card */}
-      <div className="bg-white border border-[#E2E8F0] rounded-[12px] p-6 shadow-xs space-y-4">
-        <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
-          <div className="p-3 bg-teal-50 text-[#0F766E] rounded-xl">
-            <Mail className="w-6 h-6" />
+      {/* Device Notifications Card (Desktop & Mobile PWA Sync) */}
+      <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div
+            className={`p-3 rounded-xl shrink-0 ${
+              deviceNotifOn
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400'
+                : 'bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400'
+            }`}
+          >
+            {deviceNotifOn ? <BellRing className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-900">
-              دالة التنبيهات الصباحية (Edge Function: daily-expiry-alerts)
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              تفحص النظام يومياً وترسل بريداً بأسماء الأشخاص الذين ينتهي رقمهم المميز خلال شهر (٣٠ يوماً) أو المنتهية بالفعل إلى إيميلات المسؤولين المسجلة في قاعدة البيانات.
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {isAr
+                  ? 'إشعارات الجهاز (الكمبيوتر والهاتف)'
+                  : 'Device Notifications (Desktop & Mobile)'}
+              </h3>
+              <span
+                className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                  devicePermission === 'unsupported'
+                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                    : devicePermission === 'denied'
+                    ? 'bg-red-100 dark:bg-red-950/70 text-red-800 dark:text-red-300'
+                    : deviceNotifOn
+                    ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
+                    : 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
+                }`}
+              >
+                {devicePermission === 'unsupported'
+                  ? isAr
+                    ? 'غير مدعوم في هذا المتصفح'
+                    : 'Not Supported'
+                  : devicePermission === 'denied'
+                  ? isAr
+                    ? 'محظور من إعدادات المتصفح'
+                    : 'Blocked in Browser'
+                  : deviceNotifOn
+                  ? isAr
+                    ? 'مفعلة ومتزامنة'
+                    : 'Active & Synced'
+                  : isAr
+                  ? 'غير مفعلة'
+                  : 'Disabled'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+              {isAr
+                ? 'تصلك نفس رسالة البريد الإلكتروني كإشعار مباشر على الكمبيوتر أو الهاتف عند تثبيت التطبيق كأيقونة (على الآيفون: أضفه أولاً للشاشة الرئيسية).'
+                : 'Receives the exact same email alert message as a native notification on desktop or phone when installed as an app icon.'}
             </p>
           </div>
         </div>
 
-        {/* Technical deployment instructions banner */}
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-slate-800 flex items-center gap-1.5">
-              <Code2 className="w-4 h-4 text-[#0F766E]" />
-              أمر الجدولة التلقائية اليومية في Supabase SQL Editor (توقيت الكويت 8:00 ص):
-            </span>
+        <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+          {devicePermission !== 'granted' ? (
             <button
               type="button"
-              onClick={() => handleCopy(cronSql, 'cron')}
-              className="flex items-center gap-1 px-2.5 py-1 text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100 font-medium"
+              onClick={handleEnableDeviceNotifications}
+              disabled={devicePermission === 'unsupported' || devicePermission === 'denied'}
+              className="flex items-center gap-2 min-h-[40px] px-4 py-2 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
             >
-              {copiedIndex === 'cron' ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-700">تم النسخ</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>نسخ الكود</span>
-                </>
-              )}
+              <BellRing className="w-4 h-4" />
+              <span>{isAr ? 'تفعيل إشعارات الجهاز' : 'Enable Device Alerts'}</span>
             </button>
-          </div>
-          <pre
-            className="bg-slate-900 text-slate-100 p-3 rounded-lg overflow-x-auto text-left font-mono text-[11px] leading-relaxed"
-            dir="ltr"
-          >
-            {cronSql}
-          </pre>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleToggleDevicePref}
+                className={`min-h-[40px] px-3.5 py-2 text-xs font-bold rounded-xl border transition-colors cursor-pointer ${
+                  deviceNotifOn
+                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                }`}
+              >
+                {deviceNotifOn
+                  ? isAr
+                    ? 'إيقاف مؤقت'
+                    : 'Pause Alerts'
+                  : isAr
+                  ? 'تشغيل الإشعارات'
+                  : 'Resume Alerts'}
+              </button>
+              <button
+                type="button"
+                onClick={handleSendTestDeviceNotification}
+                disabled={sendingDeviceTest}
+                className="flex items-center gap-1.5 min-h-[40px] px-4 py-2 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Bell className="w-4 h-4" />
+                <span>
+                  {sendingDeviceTest
+                    ? isAr
+                      ? 'جاري الإرسال...'
+                      : 'Sending...'
+                    : isAr
+                    ? 'إرسال نفس الرسالة كإشعار الآن'
+                    : 'Send Device Notification Now'}
+                </span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Notifications History Table */}
-      <div className="bg-white border border-[#E2E8F0] rounded-[12px] shadow-xs overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+      <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-slate-600" />
-            <h3 className="text-base font-bold text-slate-900">سجل الإيميلات المرسلة للمسؤولين</h3>
+            <Clock className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {isAr ? 'سجل التنبيهات المرسلة' : 'Sent Notifications Log'}
+            </h3>
+            <span className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums ms-2">
+              ({filteredLogs.length}/{logs.length})
+            </span>
           </div>
-          <span className="text-xs text-slate-500 font-mono tabular-nums">
-            {logs.length} عمليات مسجلة
-          </span>
+
+          {/* Search & Filter Bar for Notifications Log */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+            <div className="relative min-w-[230px]">
+              <input
+                type="text"
+                value={logSearchTerm}
+                onChange={(e) => setLogSearchTerm(e.target.value)}
+                placeholder={
+                  isAr
+                    ? 'بحث بالاسم، الرقم المدني، أو الجواز...'
+                    : 'Search name, Civil ID, or passport...'
+                }
+                className="w-full min-h-[38px] ps-9 pe-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 text-xs focus:bg-white dark:focus:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E]"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              {logSearchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setLogSearchTerm('')}
+                  className="absolute end-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="relative">
+              <Filter className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <select
+                value={logStatusFilter}
+                onChange={(e) => setLogStatusFilter(e.target.value as 'all' | 'sent' | 'failed')}
+                className="min-h-[38px] ps-8 pe-7 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] cursor-pointer"
+              >
+                <option value="all">{isAr ? 'كل الحالات' : 'All Statuses'}</option>
+                <option value="sent">{isAr ? 'تم الإرسال' : 'Sent'}</option>
+                <option value="failed">{isAr ? 'فشل' : 'Failed'}</option>
+              </select>
+            </div>
+
+            <select
+              value={logChannelFilter}
+              onChange={(e) => setLogChannelFilter(e.target.value as 'all' | 'email' | 'whatsapp')}
+              className="min-h-[38px] px-3 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] cursor-pointer"
+            >
+              <option value="all">{isAr ? 'كل القنوات' : 'All Channels'}</option>
+              <option value="email">{isAr ? 'بريد إلكتروني' : 'Email'}</option>
+              <option value="whatsapp">{isAr ? 'واتساب' : 'WhatsApp'}</option>
+            </select>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
+          <table className="w-full text-start text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200">
               <tr>
-                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">وقت الإرسال</th>
-                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">نوع الإشعار</th>
-                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">الإيميلات التي أُرسل إليها</th>
-                <th scope="col" className="px-5 py-3.5 whitespace-nowrap">الحالة</th>
-                <th scope="col" className="px-5 py-3.5">الملخص والنتائج</th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'وقت الإرسال' : 'Sent At'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'الشخص / الرقم المدني' : 'Person / Civil ID'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'نوع التنبيه' : 'Type'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'القناة' : 'Channel'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'تاريخ الانتهاء' : 'Target Expiry'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 whitespace-nowrap text-start">
+                  {isAr ? 'الحالة' : 'Status'}
+                </th>
+                <th scope="col" className="px-5 py-3.5 text-start">
+                  {isAr ? 'التفاصيل / الخطأ' : 'Details / Error'}
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 [...Array(4)].map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-28" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-24" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-44" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-16" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-64" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-40" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-20" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-16" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-44" /></td>
                   </tr>
                 ))
-              ) : logs.length === 0 ? (
+              ) : filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
-                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-500">
-                      <FileSpreadsheet className="w-10 h-10 text-slate-300 mb-2" />
-                      <p className="text-sm font-bold text-slate-800 mb-1">لا توجد إشعارات مسجلة بعد</p>
-                      <p className="text-xs text-slate-500">
-                        سيتم تسجيل أي إشعار يتم إرساله تلقائياً عبر الجدولة الصباحية أو يدوياً عبر زر الاختبار أعلاه.
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-500 dark:text-slate-400">
+                      <FileSpreadsheet className="w-10 h-10 text-slate-300 dark:text-slate-700 mb-2" />
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
+                        {isAr ? 'لا توجد إشعارات مطابقة' : 'No matching notifications'}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {logSearchTerm || logStatusFilter !== 'all' || logChannelFilter !== 'all'
+                          ? isAr
+                            ? 'جرب تغيير عبارة البحث أو الفلاتر.'
+                            : 'Try adjusting your search query or filters.'
+                          : isAr
+                          ? 'يتم تسجيل الإشعار هنا تلقائياً عند وجود شخص متبقٍ على انتهاء صلاحيته ٣٠ يوماً.'
+                          : 'Notifications are recorded automatically when a record has 30 days left before expiry.'}
                       </p>
                     </div>
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => {
-                  const isSuccess =
-                    log.status === 'sent' ||
-                    log.status === 'success' ||
-                    log.status === 'simulated_success';
+                filteredLogs.map((log) => {
+                  const isSuccess = log.status === 'sent';
+                  const personName =
+                    log.records?.full_name || log.records?.name || (isAr ? 'سجل محفوظ' : 'Saved Record');
+                  const civilId = log.records?.unique_number;
 
                   return (
-                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* وقت الإرسال */}
-                      <td className="px-5 py-4 font-mono tabular-nums text-xs text-slate-600 whitespace-nowrap">
-                        {formatKuwaitDate(log.sent_at || log.created_at)}
+                    <tr
+                      key={log.id}
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors"
+                    >
+                      <td className="px-5 py-4 font-mono tabular-nums text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {formatKuwaitDate(log.sent_at)}
                       </td>
 
-                      {/* نوع الإشعار */}
-                      <td className="px-5 py-4 text-xs font-bold text-slate-800 whitespace-nowrap">
-                        {log.notification_type === 'daily_expiry_alert'
-                          ? 'تنبيه انتهاء الرقم المميز'
-                          : log.notification_type || 'تنبيه بريدي'}
-                      </td>
-
-                      {/* المستلمون: عرض الإيميلات بوضوح */}
                       <td className="px-5 py-4 whitespace-nowrap">
-                        <div className="flex flex-wrap gap-1.5 max-w-md" dir="ltr">
-                          {log.recipient_email ? (
-                            log.recipient_email.split(',').map((email, idx) => (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50/80 text-teal-900 border border-teal-200 rounded-md text-xs font-mono font-medium shadow-2xs"
-                              >
-                                <Mail className="w-3.5 h-3.5 text-[#0F766E]" />
-                                <span>{email.trim()}</span>
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-slate-400">إيميلات المسؤولين (Admin)</span>
-                          )}
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shrink-0">
+                            <User className="w-3.5 h-3.5" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 dark:text-white">
+                              {personName}
+                            </div>
+                            {civilId && (
+                              <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                                {civilId}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
 
-                      {/* الحالة */}
+                      <td className="px-5 py-4 text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                        {log.kind === 'unique_number'
+                          ? isAr
+                            ? 'الرقم المدني'
+                            : 'Civil ID'
+                          : log.kind === 'passport'
+                          ? isAr
+                            ? 'جواز السفر'
+                            : 'Passport'
+                          : log.kind}
+                      </td>
+
+                      <td className="px-5 py-4 whitespace-nowrap">
+                        {log.channel === 'email' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50/80 dark:bg-teal-950/60 text-teal-900 dark:text-teal-300 border border-teal-200 dark:border-teal-800 rounded-md text-xs font-medium">
+                            <Mail className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400" />
+                            <span>{isAr ? 'بريد إلكتروني' : 'Email'}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-medium">
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>{isAr ? 'واتساب' : 'WhatsApp'}</span>
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="px-5 py-4 font-mono tabular-nums text-xs text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                        {formatKuwaitDate(log.target_expiry)}
+                      </td>
+
                       <td className="px-5 py-4 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold ${
                             isSuccess
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                              : 'bg-red-50 text-red-800 border border-red-200'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                              : 'bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800'
                           }`}
                         >
                           {isSuccess ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                           ) : (
-                            <XCircle className="w-3.5 h-3.5 text-red-600" />
+                            <XCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
                           )}
-                          <span>{isSuccess ? 'تم الإرسال' : 'فشل'}</span>
+                          <span>
+                            {isSuccess ? (isAr ? 'تم الإرسال' : 'Sent') : isAr ? 'فشل' : 'Failed'}
+                          </span>
                         </span>
                       </td>
 
-                      {/* الملخص */}
-                      <td className="px-5 py-4 text-xs text-slate-600">
-                        {log.summary || '—'}
+                      <td className="px-5 py-4 text-xs text-slate-600 dark:text-slate-400 max-w-xs">
+                        {log.error ? (
+                          <span className="text-red-700 dark:text-red-400 font-medium">{log.error}</span>
+                        ) : (
+                          <span>
+                            {isAr
+                              ? 'تنبيه قبل انتهاء الصلاحية بـ ٣٠ يوماً'
+                              : 'Alert sent 30 days before expiry'}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -438,28 +750,30 @@ select cron.schedule(
       {/* Email Preview Modal */}
       {previewModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-3xl max-h-[90vh] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
+          <div className="w-full max-w-3xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <Mail className="w-5 h-5 text-[#0F766E]" />
-                <h3 className="text-base font-bold text-slate-900">
-                  معاينة قالب البريد الإلكتروني (RTL) الصادر من دالة Edge Function
+                <Mail className="w-5 h-5 text-[#0F766E] dark:text-teal-400" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  {isAr ? 'معاينة قالب البريد الإلكتروني' : 'Email Template Preview'}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-200 cursor-pointer"
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto bg-slate-100">
+            <div className="flex-1 p-6 overflow-y-auto bg-slate-100 dark:bg-slate-950">
               {previewLoading ? (
                 <div className="flex flex-col items-center justify-center py-12">
-                  <RefreshCw className="w-8 h-8 animate-spin text-[#0F766E] mb-2" />
-                  <p className="text-sm font-semibold text-slate-600">جاري تجهيز المعاينة...</p>
+                  <RefreshCw className="w-8 h-8 animate-spin text-[#0F766E] dark:text-teal-400 mb-2" />
+                  <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+                    {isAr ? 'جاري تجهيز المعاينة...' : 'Loading preview...'}
+                  </p>
                 </div>
               ) : previewHtml ? (
                 <div
@@ -467,18 +781,24 @@ select cron.schedule(
                   dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               ) : (
-                <p className="text-sm text-slate-500">لا توجد معاينة متاحة.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {isAr ? 'لا توجد معاينة متاحة.' : 'No preview available.'}
+                </p>
               )}
             </div>
 
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-              <span>القالب مهيأ لتقرير الرقم المميز للأشخاص الذين ينتهي رقمهم خلال شهر أو منتهي.</span>
+            <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/70 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>
+                {isAr
+                  ? 'القالب مهيأ لتقرير الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً.'
+                  : 'Template formatted for Civil IDs expiring in 30 days.'}
+              </span>
               <button
                 type="button"
                 onClick={() => setPreviewModalOpen(false)}
-                className="px-4 py-1.5 text-xs font-semibold bg-white border border-slate-300 rounded hover:bg-slate-100 text-slate-700 cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
               >
-                إغلاق
+                {isAr ? 'إغلاق' : 'Close'}
               </button>
             </div>
           </div>

@@ -16,10 +16,13 @@ import {
   XCircle,
   FileSpreadsheet,
   Calendar,
+  Filter,
+  X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { RecordItem, ExpiryStatus } from '../types';
+import { RecordItem } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { usePreferences } from '../context/PreferencesContext';
 import { formatKuwaitDate } from '../utils/date';
 import { StatusChip } from '../components/StatusChip';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -28,56 +31,51 @@ import { translateErrorMessage } from '../utils/errors';
 interface DashboardViewProps {
   onAddNew: () => void;
   onEdit: (id: string) => void;
-  activeSidebarTab: 'dashboard' | 'records' | 'alerts';
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({
-  onAddNew,
-  onEdit,
-  activeSidebarTab,
-}) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }) => {
   const { isAdmin } = useAuth();
+  const { lang } = usePreferences();
+  const isAr = lang === 'ar';
+
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
+  const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'civil_id' | 'passport'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'expiring_soon' | 'expired' | 'valid'>('all');
+  const [nationalityFilter, setNationalityFilter] = useState<string>('all');
 
-  // Deletion modal state
   const [deleteTarget, setDeleteTarget] = useState<RecordItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Success toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Query the view records_with_status
       const { data, error: fetchErr } = await supabase
         .from('records_with_status')
         .select('*');
 
       if (fetchErr) {
-        setError(translateErrorMessage(fetchErr));
+        setError(translateErrorMessage(fetchErr, lang));
       } else {
         setRecords(data || []);
       }
     } catch (err: any) {
-      setError(translateErrorMessage(err));
+      setError(translateErrorMessage(err, lang));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     fetchRecords();
   }, [fetchRecords]);
 
-  // Handle record deletion (Admin only)
   const handleDeleteConfirm = async () => {
     if (!deleteTarget || !isAdmin) return;
 
@@ -89,26 +87,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         .eq('id', deleteTarget.id);
 
       if (delErr) {
-        setError(translateErrorMessage(delErr));
+        setError(translateErrorMessage(delErr, lang));
       } else {
         setRecords((prev) => prev.filter((r) => r.id !== deleteTarget.id));
-        setToastMessage('تم حذف السجل بنجاح.');
+        setToastMessage(isAr ? 'تم حذف السجل بنجاح.' : 'Record deleted successfully.');
         setTimeout(() => setToastMessage(null), 4000);
       }
     } catch (err: any) {
-      setError(translateErrorMessage(err));
+      setError(translateErrorMessage(err, lang));
     } finally {
       setIsDeleting(false);
       setDeleteTarget(null);
     }
   };
 
-  // Summary Metrics computed from view records_with_status
-  // a) الرقم المميز ينتهي خلال ٣٠ يوماً (unique_number_status = 'expiring_soon')
-  // b) الجواز ينتهي خلال سنة (passport_status = 'expiring_soon')
-  // c) منتهية بالفعل (either status = 'expired')
   const metrics = useMemo(() => {
-    let uniqueNumberExpiringSoon = 0;
+    let civilIdExpiringSoon = 0;
     let passportExpiringSoon = 0;
     let alreadyExpired = 0;
 
@@ -117,7 +111,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const pStatus = r.passport_status;
 
       if (uStatus === 'expiring_soon') {
-        uniqueNumberExpiringSoon++;
+        civilIdExpiringSoon++;
       }
       if (pStatus === 'expiring_soon') {
         passportExpiringSoon++;
@@ -128,33 +122,69 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
 
     return {
-      uniqueNumberExpiringSoon,
+      civilIdExpiringSoon,
       passportExpiringSoon,
       alreadyExpired,
     };
   }, [records]);
 
-  // Filtered and Sorted records
-  // Default sort: nearest expiry = smaller of unique_number_days_left and passport_days_left
+  const availableNationalities = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of records) {
+      if (r.nationality && r.nationality.trim()) {
+        set.add(r.nationality.trim());
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [records]);
+
+  const hasActiveFilters =
+    Boolean(searchTerm.trim()) ||
+    docTypeFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    nationalityFilter !== 'all';
+
+  const resetAllFilters = () => {
+    setSearchTerm('');
+    setDocTypeFilter('all');
+    setStatusFilter('all');
+    setNationalityFilter('all');
+  };
+
   const filteredRecords = useMemo(() => {
     return records
       .filter((rec) => {
-        // Search text: name, unique number, passport number
+        // Document type filter check
+        if (docTypeFilter === 'civil_id' && !rec.unique_number) return false;
+        if (docTypeFilter === 'passport' && !rec.passport_number) return false;
+
+        // Nationality filter check
+        if (nationalityFilter !== 'all' && (rec.nationality || '').trim() !== nationalityFilter) {
+          return false;
+        }
+
         const name = (rec.full_name || rec.name || '').toLowerCase();
-        const uniqueNum = (rec.unique_number || '').toLowerCase();
+        const civilId = (rec.unique_number || '').toLowerCase();
         const passportNum = (rec.passport_number || '').toLowerCase();
         const query = searchTerm.toLowerCase().trim();
 
         const matchesSearch =
           !query ||
           name.includes(query) ||
-          uniqueNum.includes(query) ||
+          civilId.includes(query) ||
           passportNum.includes(query);
 
         if (!matchesSearch) return false;
 
-        // Status filter
         if (statusFilter === 'all') return true;
+
+        if (docTypeFilter === 'civil_id') {
+          return rec.unique_number_status === statusFilter;
+        }
+        if (docTypeFilter === 'passport') {
+          return rec.passport_status === statusFilter;
+        }
+
         if (statusFilter === 'expired') {
           return rec.unique_number_status === 'expired' || rec.passport_status === 'expired';
         }
@@ -170,22 +200,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         return true;
       })
       .sort((a, b) => {
-        // Default sort: nearest expiry = the smaller of unique_number_days_left and passport_days_left
         const getNearestDays = (item: RecordItem): number => {
           const uDays = typeof item.unique_number_days_left === 'number' ? item.unique_number_days_left : 999999;
           const pDays = typeof item.passport_days_left === 'number' ? item.passport_days_left : 999999;
+          if (docTypeFilter === 'civil_id') return uDays;
+          if (docTypeFilter === 'passport') return pDays;
           return Math.min(uDays, pDays);
         };
 
         return getNearestDays(a) - getNearestDays(b);
       });
-  }, [records, searchTerm, statusFilter]);
+  }, [records, searchTerm, docTypeFilter, statusFilter, nationalityFilter]);
 
   return (
     <div className="space-y-6">
       {/* Toast notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 px-4 py-3 bg-emerald-800 text-white rounded-xl shadow-lg border border-emerald-700 animate-fade-in text-sm font-semibold">
+        <div className="fixed bottom-6 start-6 z-50 flex items-center gap-2 px-4 py-3 bg-emerald-800 text-white rounded-xl shadow-lg border border-emerald-700 animate-fade-in text-sm font-semibold">
           <CheckCircle2 className="w-5 h-5 text-emerald-300" />
           <span>{toastMessage}</span>
         </div>
@@ -194,13 +225,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Top Action Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">
-            {activeSidebarTab === 'records' ? 'إدارة السجلات والبيانات' : 'لوحة التنبيهات والإحصائيات'}
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            {isAr ? 'إدارة السجلات والتنبيهات' : 'Records & Expiry Tracking'}
           </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {activeSidebarTab === 'records'
-              ? 'قائمة كاملة بجميع السجلات ومتابعة وثائق الرقم المميز والجوازات والبحث والتعديل'
-              : 'متابعة دقيقة ومباشرة لتواريخ انتهاء الرقم المميز وجوازات السفر'}
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            {isAr
+              ? 'متابعة دقيقة ومباشرة لتواريخ انتهاء الرقم المدني وجوازات السفر'
+              : 'Live monitoring of Civil ID and passport expiration dates'}
           </p>
         </div>
 
@@ -209,11 +240,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             type="button"
             onClick={fetchRecords}
             disabled={loading}
-            title="تحديث البيانات"
-            className="flex items-center gap-2 min-h-[44px] px-3.5 py-2 bg-white border border-[#E2E8F0] rounded-xl text-slate-700 hover:bg-slate-50 font-medium text-sm transition-colors shadow-xs cursor-pointer"
+            title={isAr ? 'تحديث البيانات' : 'Refresh'}
+            className="flex items-center gap-2 min-h-[44px] px-3.5 py-2 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium text-sm transition-colors shadow-xs cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0F766E]' : ''}`} />
-            <span className="hidden sm:inline">تحديث</span>
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0F766E] dark:text-teal-400' : ''}`} />
+            <span className="hidden sm:inline">{isAr ? 'تحديث' : 'Refresh'}</span>
           </button>
 
           <button
@@ -222,225 +253,346 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex items-center gap-2 min-h-[44px] px-5 py-2.5 bg-[#0F766E] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-md transition-all cursor-pointer"
           >
             <Plus className="w-5 h-5" />
-            <span>+ إضافة سجل</span>
+            <span>{isAr ? 'إضافة سجل' : 'Add Record'}</span>
           </button>
         </div>
       </div>
 
       {/* Error alert banner */}
       {error && (
-        <div className="flex items-center gap-3 p-4 bg-[#FEE2E2] border border-[#FECACA] rounded-xl text-sm text-red-900">
-          <AlertTriangle className="w-5 h-5 text-[#B91C1C] shrink-0" />
+        <div className="flex items-center gap-3 p-4 bg-[#FEE2E2] dark:bg-red-950/60 border border-[#FECACA] dark:border-red-800 rounded-xl text-sm text-red-900 dark:text-red-200">
+          <AlertTriangle className="w-5 h-5 text-[#B91C1C] dark:text-red-400 shrink-0" />
           <div className="flex-1 font-medium">{error}</div>
           <button
             type="button"
             onClick={fetchRecords}
-            className="text-xs font-bold text-red-900 underline hover:no-underline"
+            className="text-xs font-bold text-red-900 dark:text-red-200 underline hover:no-underline cursor-pointer"
           >
-            إعادة المحاولة
+            {isAr ? 'إعادة المحاولة' : 'Retry'}
           </button>
         </div>
       )}
 
-      {/* 3 Summary Cards computed from view records_with_status */}
+      {/* 3 Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Card A: الرقم المميز ينتهي خلال ٣٠ يوماً */}
+        {/* Card A: الرقم المدني ينتهي خلال ٣٠ يوماً */}
         <div
           onClick={() => setStatusFilter((curr) => (curr === 'expiring_soon' ? 'all' : 'expiring_soon'))}
-          className={`p-5 bg-white border border-[#E2E8F0] rounded-[12px] shadow-xs cursor-pointer hover:border-amber-400 transition-all ${
-            statusFilter === 'expiring_soon' ? 'ring-2 ring-amber-500 bg-amber-50/20' : ''
+          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-amber-400 dark:hover:border-amber-500 transition-all ${
+            statusFilter === 'expiring_soon'
+              ? 'ring-2 ring-amber-500 bg-amber-50/20 dark:bg-amber-950/20'
+              : ''
           }`}
         >
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-900 bg-[#FEF3C7] px-2.5 py-1 rounded-md">
-              خلال 30 يوماً
+            <span className="text-xs font-bold text-amber-900 dark:text-amber-300 bg-[#FEF3C7] dark:bg-amber-950/70 px-2.5 py-1 rounded-md">
+              {isAr ? 'خلال 30 يوماً' : 'Within 30 Days'}
             </span>
-            <div className="p-2.5 bg-amber-50 text-amber-700 rounded-xl">
+            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-xl">
               <Clock className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-sm font-semibold text-slate-700 mb-1">
-            الرقم المميز ينتهي خلال ٣٠ يوماً
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+            {isAr ? 'الرقم المدني ينتهي خلال ٣٠ يوماً' : 'Civil ID Expiring in 30 Days'}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-amber-800 font-mono tabular-nums">
-              {metrics.uniqueNumberExpiringSoon}
+            <span className="text-3xl font-extrabold text-amber-800 dark:text-amber-400 font-mono tabular-nums">
+              {metrics.civilIdExpiringSoon}
             </span>
-            <span className="text-xs text-slate-500">سجل يحتاج تجديداً عاجلاً</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {isAr ? 'سجل يحتاج تجديداً عاجلاً' : 'records need urgent renewal'}
+            </span>
           </div>
         </div>
 
         {/* Card B: الجواز ينتهي خلال سنة */}
         <div
           onClick={() => setStatusFilter((curr) => (curr === 'expiring_soon' ? 'all' : 'expiring_soon'))}
-          className={`p-5 bg-white border border-[#E2E8F0] rounded-[12px] shadow-xs cursor-pointer hover:border-teal-500 transition-all ${
-            statusFilter === 'expiring_soon' ? 'ring-2 ring-[#0F766E] bg-teal-50/20' : ''
+          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-teal-500 transition-all ${
+            statusFilter === 'expiring_soon'
+              ? 'ring-2 ring-[#0F766E] bg-teal-50/20 dark:bg-teal-950/20'
+              : ''
           }`}
         >
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-teal-900 bg-teal-100 px-2.5 py-1 rounded-md">
-              خلال سنة
+            <span className="text-xs font-bold text-teal-900 dark:text-teal-300 bg-teal-100 dark:bg-teal-950/70 px-2.5 py-1 rounded-md">
+              {isAr ? 'خلال سنة' : 'Within 1 Year'}
             </span>
-            <div className="p-2.5 bg-teal-50 text-[#0F766E] rounded-xl">
+            <div className="p-2.5 bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 rounded-xl">
               <Calendar className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-sm font-semibold text-slate-700 mb-1">الجواز ينتهي خلال سنة</p>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+            {isAr ? 'الجواز ينتهي خلال سنة' : 'Passport Expiring Within 1 Year'}
+          </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-[#0F766E] font-mono tabular-nums">
+            <span className="text-3xl font-extrabold text-[#0F766E] dark:text-teal-400 font-mono tabular-nums">
               {metrics.passportExpiringSoon}
             </span>
-            <span className="text-xs text-slate-500">جواز سفر قارب على الانتهاء</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {isAr ? 'جواز سفر قارب على الانتهاء' : 'passports nearing expiry'}
+            </span>
           </div>
         </div>
 
         {/* Card C: منتهية بالفعل */}
         <div
           onClick={() => setStatusFilter((curr) => (curr === 'expired' ? 'all' : 'expired'))}
-          className={`p-5 bg-white border border-[#E2E8F0] rounded-[12px] shadow-xs cursor-pointer hover:border-red-400 transition-all ${
-            statusFilter === 'expired' ? 'ring-2 ring-red-500 bg-red-50/20' : ''
+          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-red-400 transition-all ${
+            statusFilter === 'expired'
+              ? 'ring-2 ring-red-500 bg-red-50/20 dark:bg-red-950/20'
+              : ''
           }`}
         >
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-[#B91C1C] bg-[#FEE2E2] px-2.5 py-1 rounded-md">
-              منتهية الصلاحية
+            <span className="text-xs font-bold text-[#B91C1C] dark:text-red-300 bg-[#FEE2E2] dark:bg-red-950/70 px-2.5 py-1 rounded-md">
+              {isAr ? 'منتهية الصلاحية' : 'Expired'}
             </span>
-            <div className="p-2.5 bg-red-50 text-[#B91C1C] rounded-xl">
+            <div className="p-2.5 bg-red-50 dark:bg-red-950/60 text-[#B91C1C] dark:text-red-400 rounded-xl">
               <XCircle className="w-5 h-5" />
             </div>
           </div>
-          <p className="text-sm font-semibold text-slate-700 mb-1">منتهية بالفعل</p>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+            {isAr ? 'منتهية بالفعل' : 'Already Expired'}
+          </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-[#B91C1C] font-mono tabular-nums">
+            <span className="text-3xl font-extrabold text-[#B91C1C] dark:text-red-400 font-mono tabular-nums">
               {metrics.alreadyExpired}
             </span>
-            <span className="text-xs text-slate-500">وثيقة انتهت صلاحيتها</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {isAr ? 'وثيقة انتهت صلاحيتها' : 'expired documents'}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Search Bar & Status Filter */}
-      <div className="bg-white border border-[#E2E8F0] rounded-[12px] p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Search Box */}
-        <div className="relative w-full md:w-96">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="البحث بالاسم، الرقم المميز، أو رقم الجواز..."
-            className="w-full min-h-[44px] pr-10 pl-4 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 text-sm focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
-          />
-          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
-            <Search className="w-4 h-4" />
+      {/* Search Bar, Document Type Filter, Nationality Filter & Status Filter */}
+      <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] p-4 shadow-xs space-y-3">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+            {/* Search Input (Name, Civil ID, Passport Number) */}
+            <div className="relative flex-1 min-w-[240px]">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={
+                  isAr
+                    ? 'بحث بالاسم أو الرقم المدني أو رقم جواز السفر...'
+                    : 'Search by name, Civil ID, or passport number...'
+                }
+                className="w-full min-h-[44px] ps-10 pe-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:bg-white dark:focus:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
+              />
+              <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none text-slate-400">
+                <Search className="w-4 h-4" />
+              </div>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  title={isAr ? 'مسح البحث' : 'Clear search'}
+                  className="absolute inset-y-0 end-0 flex items-center pe-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Nationality Filter Dropdown */}
+            <div className="relative shrink-0 min-w-[170px]">
+              <div className="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none text-slate-400">
+                <Filter className="w-4 h-4" />
+              </div>
+              <select
+                value={nationalityFilter}
+                onChange={(e) => setNationalityFilter(e.target.value)}
+                aria-label={isAr ? 'تصفية حسب الجنسية' : 'Filter by nationality'}
+                className="w-full min-h-[44px] ps-9 pe-8 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 text-sm font-medium focus:bg-white dark:focus:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all cursor-pointer"
+              >
+                <option value="all">{isAr ? 'كل الجنسيات' : 'All Nationalities'}</option>
+                {availableNationalities.map((nat) => (
+                  <option key={nat} value={nat}>
+                    {nat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Segmented Status Filter Buttons */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-full xl:w-auto overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === 'all'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {isAr ? `الكل (${records.length})` : `All (${records.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('expiring_soon')}
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === 'expiring_soon'
+                  ? 'bg-[#FEF3C7] dark:bg-amber-950/80 text-[#92400E] dark:text-amber-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {isAr ? 'ينتهي قريباً' : 'Expiring Soon'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('expired')}
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === 'expired'
+                  ? 'bg-[#FEE2E2] dark:bg-red-950/80 text-[#B91C1C] dark:text-red-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {isAr ? 'منتهي' : 'Expired'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatusFilter('valid')}
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                statusFilter === 'valid'
+                  ? 'bg-[#DCFCE7] dark:bg-emerald-950/80 text-[#166534] dark:text-emerald-300 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {isAr ? 'ساري' : 'Valid'}
+            </button>
           </div>
         </div>
 
-        {/* Segmented Filter Buttons */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-lg w-full md:w-auto overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setStatusFilter('all')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
-              statusFilter === 'all'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            الكل ({records.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('expiring_soon')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
-              statusFilter === 'expiring_soon'
-                ? 'bg-[#FEF3C7] text-[#92400E] shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            ينتهي قريباً
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('expired')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
-              statusFilter === 'expired'
-                ? 'bg-[#FEE2E2] text-[#B91C1C] shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            منتهي
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter('valid')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
-              statusFilter === 'valid'
-                ? 'bg-[#DCFCE7] text-[#166534] shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            ساري
-          </button>
+        {/* Secondary Filter Row: Document Type + Reset Filters */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              {isAr ? 'نوع الوثيقة:' : 'Document Type:'}
+            </span>
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setDocTypeFilter('all')}
+                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  docTypeFilter === 'all'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {isAr ? 'كل الوثائق' : 'All Docs'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocTypeFilter('civil_id')}
+                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  docTypeFilter === 'civil_id'
+                    ? 'bg-[#0F766E] text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {isAr ? 'رقم مدني' : 'Civil ID'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDocTypeFilter('passport')}
+                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  docTypeFilter === 'passport'
+                    ? 'bg-[#0F766E] text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                {isAr ? 'جواز سفر' : 'Passport'}
+              </button>
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>{isAr ? 'مسح الفلاتر' : 'Clear Filters'}</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Records Table */}
-      <div className="bg-white border border-[#E2E8F0] rounded-[12px] shadow-xs overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">
+          <table className="w-full text-start text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200">
               <tr>
-                {/* Columns in exact specified order:
-                    1) الاسم
-                    2) الرقم المميز
-                    3) تاريخ الانتهاء
-                    4) رقم الجواز
-                    5) الجنسية
-                    6) انتهاء الجواز
-                    7) الحالة
-                    + الإجراءات (Actions) */}
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">الاسم</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">الرقم المميز</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">تاريخ الانتهاء</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">رقم الجواز</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">الجنسية</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">انتهاء الجواز</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap">الحالة</th>
-                <th scope="col" className="px-5 py-4 whitespace-nowrap text-center">الإجراءات</th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'الاسم' : 'Full Name'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'الرقم المدني' : 'Civil ID'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'تاريخ الانتهاء' : 'Civil ID Expiry'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'رقم الجواز' : 'Passport No.'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'الجنسية' : 'Nationality'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'انتهاء الجواز' : 'Passport Expiry'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-start">
+                  {isAr ? 'الحالة' : 'Status'}
+                </th>
+                <th scope="col" className="px-5 py-4 whitespace-nowrap text-center">
+                  {isAr ? 'الإجراءات' : 'Actions'}
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
-                // Skeleton loading rows
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-32" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-24" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-20" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-24" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-16" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-20" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-28" /></td>
-                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-16 mx-auto" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-32" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-20" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-24" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-16" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-20" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-28" /></td>
+                    <td className="px-5 py-4"><div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-16 mx-auto" /></td>
                   </tr>
                 ))
               ) : filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-14 text-center">
-                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-500">
-                      <FileSpreadsheet className="w-12 h-12 text-slate-300 mb-3" />
-                      <p className="text-base font-bold text-slate-800 mb-1">لا توجد سجلات مطابقة</p>
-                      <p className="text-xs text-slate-500 mb-4">
+                    <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-500 dark:text-slate-400">
+                      <FileSpreadsheet className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" />
+                      <p className="text-base font-bold text-slate-800 dark:text-slate-200 mb-1">
+                        {isAr ? 'لا توجد سجلات مطابقة' : 'No matching records'}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                         {searchTerm
-                          ? 'لم يتم العثور على أي نتائج تطابق عبارة البحث الحالية.'
-                          : 'لم يتم إضافة أي سجلات بعد في النظام.'}
+                          ? isAr
+                            ? 'لم يتم العثور على أي نتائج تطابق عبارة البحث الحالية.'
+                            : 'No records match your current search.'
+                          : isAr
+                          ? 'لم يتم إضافة أي سجلات بعد في النظام.'
+                          : 'No records have been added yet.'}
                       </p>
                       <button
                         type="button"
                         onClick={onAddNew}
-                        className="px-4 py-2 bg-[#0F766E] text-white text-xs font-bold rounded-lg hover:bg-teal-800 transition-colors"
+                        className="px-4 py-2 bg-[#0F766E] text-white text-xs font-bold rounded-lg hover:bg-teal-800 transition-colors cursor-pointer"
                       >
-                        + إضافة أول سجل الآن
+                        {isAr ? '+ إضافة أول سجل الآن' : '+ Add First Record'}
                       </button>
                     </div>
                   </td>
@@ -448,68 +600,60 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               ) : (
                 filteredRecords.map((item) => {
                   const fullName = item.full_name || item.name || '—';
-                  const uniqueNumExpiry = item.unique_number_expiry_date || item.unique_number_expiry;
+                  const civilIdExpiry = item.unique_number_expiry_date || item.unique_number_expiry;
                   const passportExpiry = item.passport_expiry_date || item.passport_expiry;
 
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-slate-50/80 transition-colors group"
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group"
                     >
-                      {/* 1. الاسم */}
-                      <td className="px-5 py-4 font-semibold text-slate-900 whitespace-nowrap">
+                      <td className="px-5 py-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                         {fullName}
                       </td>
 
-                      {/* 2. الرقم المميز */}
-                      <td className="px-5 py-4 font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                      <td className="px-5 py-4 font-mono tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {item.unique_number || '—'}
                       </td>
 
-                      {/* 3. تاريخ الانتهاء (للأرقام المميزة) */}
-                      <td className="px-5 py-4 font-mono tabular-nums text-slate-600 whitespace-nowrap">
-                        {formatKuwaitDate(uniqueNumExpiry)}
+                      <td className="px-5 py-4 font-mono tabular-nums text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                        {formatKuwaitDate(civilIdExpiry)}
                       </td>
 
-                      {/* 4. رقم الجواز */}
-                      <td className="px-5 py-4 font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                      <td className="px-5 py-4 font-mono tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {item.passport_number || '—'}
                       </td>
 
-                      {/* 5. الجنسية */}
-                      <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
+                      <td className="px-5 py-4 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                         {item.nationality || '—'}
                       </td>
 
-                      {/* 6. انتهاء الجواز */}
-                      <td className="px-5 py-4 font-mono tabular-nums text-slate-600 whitespace-nowrap">
+                      <td className="px-5 py-4 font-mono tabular-nums text-slate-600 dark:text-slate-400 whitespace-nowrap">
                         {formatKuwaitDate(passportExpiry)}
                       </td>
 
-                      {/* 7. الحالة (Chips for both Unique Number and Passport with days left) */}
                       <td className="px-5 py-4 whitespace-nowrap">
                         <div className="flex flex-col gap-1.5 items-start">
                           <StatusChip
-                            label="الرقم المميز"
+                            label={isAr ? 'الرقم المدني' : 'Civil ID'}
                             status={item.unique_number_status}
                             daysLeft={item.unique_number_days_left}
                           />
                           <StatusChip
-                            label="الجواز"
+                            label={isAr ? 'الجواز' : 'Passport'}
                             status={item.passport_status}
                             daysLeft={item.passport_days_left}
                           />
                         </div>
                       </td>
 
-                      {/* Actions: تعديل and حذف (حذف visible only to admin) */}
                       <td className="px-5 py-4 whitespace-nowrap text-center">
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => onEdit(item.id)}
-                            title="تعديل السجل"
-                            className="p-2 text-slate-600 hover:text-[#0F766E] hover:bg-teal-50 rounded-lg transition-colors cursor-pointer"
+                            title={isAr ? 'تعديل السجل' : 'Edit record'}
+                            className="p-2 text-slate-600 dark:text-slate-400 hover:text-[#0F766E] dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/60 rounded-lg transition-colors cursor-pointer"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
@@ -518,8 +662,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <button
                               type="button"
                               onClick={() => setDeleteTarget(item)}
-                              title="حذف السجل (صلاحية مدير النظام)"
-                              className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                              title={isAr ? 'حذف السجل' : 'Delete record'}
+                              className="p-2 text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-lg transition-colors cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -535,19 +679,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Table footer count */}
-        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex items-center justify-between">
+        <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
           <div>
-            إجمالي السجلات المعروضة:{' '}
-            <span className="font-mono tabular-nums font-bold text-slate-700">
-              {filteredRecords.length}
-            </span>{' '}
-            من أصل{' '}
-            <span className="font-mono tabular-nums font-bold text-slate-700">
-              {records.length}
-            </span>
+            {isAr ? (
+              <>
+                إجمالي السجلات المعروضة:{' '}
+                <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
+                  {filteredRecords.length}
+                </span>{' '}
+                من أصل{' '}
+                <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
+                  {records.length}
+                </span>
+              </>
+            ) : (
+              <>
+                Showing{' '}
+                <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
+                  {filteredRecords.length}
+                </span>{' '}
+                of{' '}
+                <span className="font-mono tabular-nums font-bold text-slate-700 dark:text-slate-200">
+                  {records.length}
+                </span>{' '}
+                records
+              </>
+            )}
           </div>
-          <div className="text-slate-400 text-[11px]">
-            مرتبة تلقائياً حسب تاريخ الانتهاء الأقرب
+          <div className="text-slate-400 dark:text-slate-500 text-[11px]">
+            {isAr ? 'مرتبة تلقائياً حسب تاريخ الانتهاء الأقرب' : 'Sorted by nearest expiry'}
           </div>
         </div>
       </div>
@@ -555,10 +715,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
-        title="تأكيد حذف السجل"
-        message={`هل أنت متأكد من رغبتك في حذف سجل "${deleteTarget?.full_name || deleteTarget?.name || ''}" بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء.`}
-        confirmLabel="حذف السجل"
-        cancelLabel="إلغاء"
+        title={isAr ? 'تأكيد حذف السجل' : 'Confirm Delete'}
+        message={
+          isAr
+            ? `هل أنت متأكد من رغبتك في حذف سجل "${deleteTarget?.full_name || deleteTarget?.name || ''}" بشكل نهائي؟ لا يمكن التراجع عن هذا الإجراء.`
+            : `Are you sure you want to permanently delete "${deleteTarget?.full_name || deleteTarget?.name || ''}"? This cannot be undone.`
+        }
+        confirmLabel={isAr ? 'حذف السجل' : 'Delete'}
+        cancelLabel={isAr ? 'إلغاء' : 'Cancel'}
         isDestructive={true}
         isLoading={isDeleting}
         onConfirm={handleDeleteConfirm}

@@ -11,9 +11,12 @@ declare const Deno: {
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
+
+const LOGO_URL =
+  "https://i.postimg.cc/fT1R1cxn/7ea06fe60f018b2b8b4721ae0ff1b90a-removebg-preview.png";
 
 interface AlertRecord {
   id: string;
@@ -26,10 +29,64 @@ interface AlertRecord {
   nationality: string;
   passport_expiry_date?: string;
   passport_expiry?: string;
-  unique_number_status?: "valid" | "expiring_soon" | "expired";
-  passport_status?: "valid" | "expiring_soon" | "expired";
-  unique_number_days_left?: number | null;
-  passport_days_left?: number | null;
+  uniqueExpiryYmd?: string;
+  beforeDateYmd?: string;
+  daysLeft?: number;
+}
+
+/**
+ * Extracts YYYY-MM-DD from an ISO date or timestamp string
+ */
+function extractYmd(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  const trimmed = String(dateStr).trim();
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  try {
+    const d = new Date(trimmed);
+    if (isNaN(d.getTime())) return null;
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kuwait",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns today's YYYY-MM-DD date string in Asia/Kuwait timezone
+ */
+function getTodayKuwaitYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kuwait",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+/**
+ * Adds/subtracts calendar days to a YYYY-MM-DD string safely in UTC
+ */
+function addDaysToYmd(ymd: string, days: number): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Computes (targetYmd - baseYmd) in whole days
+ */
+function diffDaysYmd(targetYmd: string, baseYmd: string): number {
+  const [ty, tm, td] = targetYmd.split("-").map(Number);
+  const [by, bm, bd] = baseYmd.split("-").map(Number);
+  const tUtc = Date.UTC(ty, tm - 1, td);
+  const bUtc = Date.UTC(by, bm - 1, bd);
+  return Math.round((tUtc - bUtc) / 86400000);
 }
 
 /**
@@ -38,6 +95,11 @@ interface AlertRecord {
 function formatDateKuwait(dateStr?: string | null): string {
   if (!dateStr) return "—";
   try {
+    const ymd = extractYmd(dateStr);
+    if (ymd) {
+      const [y, m, d] = ymd.split("-");
+      return `${d}/${m}/${y}`;
+    }
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "—";
     return new Intl.DateTimeFormat("en-GB", {
@@ -52,56 +114,54 @@ function formatDateKuwait(dateStr?: string | null): string {
 }
 
 /**
- * Builds a styled, modern, RTL Arabic HTML email template focusing on Unique Number (الرقم المميز) expiry
+ * Escapes HTML special characters to prevent HTML injection in email templates
+ */
+function escapeHtml(value?: string | null): string {
+  if (!value) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Builds a clean, RTL Arabic HTML email template showing the person(s) whose Civil ID expires in 30 days
  */
 function buildAlertEmailHtml(params: {
   companyName: string;
   appUrl: string;
   dateStr: string;
-  expiredRecords: AlertRecord[];
-  expiringSoonRecords: AlertRecord[];
+  matchedRecords: AlertRecord[];
+  isTestFallback?: boolean;
 }): string {
-  const { companyName, appUrl, dateStr, expiredRecords, expiringSoonRecords } = params;
+  const { companyName, appUrl, dateStr, matchedRecords } = params;
+  const safeCompany = escapeHtml(companyName);
 
-  const expiredRows = expiredRecords
+  const personRowsHtml = matchedRecords
     .map((r) => {
-      const name = r.full_name || r.name || "—";
-      const uExp = formatDateKuwait(r.unique_number_expiry_date || r.unique_number_expiry);
-      const daysText =
-        r.unique_number_days_left !== undefined && r.unique_number_days_left !== null
-          ? `منتهي منذ ${Math.abs(r.unique_number_days_left)} يوم`
-          : "منتهي";
+      const name = escapeHtml(r.full_name || r.name || "—");
+      const civilId = escapeHtml(r.unique_number || "—");
+      const uExp = formatDateKuwait(r.uniqueExpiryYmd || r.unique_number_expiry_date || r.unique_number_expiry);
+      const daysVal = typeof r.daysLeft === "number" ? r.daysLeft : 30;
+      const daysLabel =
+        daysVal < 0
+          ? `منتهي منذ ${Math.abs(daysVal)} يوم`
+          : daysVal === 0
+          ? "ينتهي اليوم"
+          : `متبقٍ ${daysVal} يوم`;
 
       return `
-      <tr style="border-bottom: 1px solid #FEE2E2;">
-        <td style="padding: 12px 14px; font-weight: 600; color: #1E293B;">${name}</td>
-        <td style="padding: 12px 14px; font-family: monospace; font-weight: 700; color: #0F172A;">${r.unique_number || '—'}</td>
-        <td style="padding: 12px 14px; font-family: monospace; color: #DC2626; font-weight: 600;">${uExp}</td>
-        <td style="padding: 12px 14px; color: #475569;">${r.nationality || '—'}</td>
-        <td style="padding: 12px 14px; font-family: monospace; color: #475569;">${r.passport_number || '—'}</td>
-        <td style="padding: 12px 14px; color: #B91C1C; font-weight: 700; font-size: 13px;">${daysText}</td>
-      </tr>
-      `;
-    })
-    .join("");
-
-  const expiringSoonRows = expiringSoonRecords
-    .map((r) => {
-      const name = r.full_name || r.name || "—";
-      const uExp = formatDateKuwait(r.unique_number_expiry_date || r.unique_number_expiry);
-      const daysRemaining =
-        r.unique_number_days_left !== undefined && r.unique_number_days_left !== null
-          ? `متبقٍ ${r.unique_number_days_left} يوم`
-          : "أقل من شهر";
-
-      return `
-      <tr style="border-bottom: 1px solid #FEF3C7;">
-        <td style="padding: 12px 14px; font-weight: 600; color: #1E293B;">${name}</td>
-        <td style="padding: 12px 14px; font-family: monospace; font-weight: 700; color: #0F172A;">${r.unique_number || '—'}</td>
-        <td style="padding: 12px 14px; font-family: monospace; color: #D97706; font-weight: 600;">${uExp}</td>
-        <td style="padding: 12px 14px; color: #475569;">${r.nationality || '—'}</td>
-        <td style="padding: 12px 14px; font-family: monospace; color: #475569;">${r.passport_number || '—'}</td>
-        <td style="padding: 12px 14px; color: #92400E; font-weight: 700; font-size: 13px;">${daysRemaining}</td>
+      <tr style="border-bottom: 1px solid #E2E8F0;">
+        <td style="padding: 14px 16px; font-weight: 700; font-size: 15px; color: #0F172A;">${name}</td>
+        <td style="padding: 14px 16px; font-family: monospace; font-weight: 600; color: #334155;">${civilId}</td>
+        <td style="padding: 14px 16px; font-family: monospace; color: #D97706; font-weight: 700;">${uExp}</td>
+        <td style="padding: 14px 16px;">
+          <span style="display: inline-block; background-color: #FEF3C7; color: #92400E; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 12px;">
+            ${daysLabel}
+          </span>
+        </td>
       </tr>
       `;
     })
@@ -113,146 +173,73 @@ function buildAlertEmailHtml(params: {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تنبيه انتهاء الرقم المميز</title>
+    <title>تنبيه انتهاء الرقم المدني - ${safeCompany}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Momo+Signature&display=swap" rel="stylesheet">
   </head>
-  <body style="margin: 0; padding: 0; background-color: #F4F6F8; font-family: 'Cairo', Tahoma, Arial, sans-serif; direction: rtl; text-align: right; color: #0F172A;">
-    <div style="max-width: 760px; margin: 30px auto; background-color: #FFFFFF; border-radius: 14px; overflow: hidden; border: 1px solid #E2E8F0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+  <body style="margin: 0; padding: 0; background-color: #F4F6F8; font-family: 'IBM Plex Sans Arabic', 'Nunito Sans', Tahoma, Arial, sans-serif; direction: rtl; text-align: right; color: #0F172A;">
+    <div style="max-width: 680px; margin: 30px auto; background-color: #FFFFFF; border-radius: 14px; overflow: hidden; border: 1px solid #E2E8F0; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
       
-      <!-- Header -->
-      <div style="background-color: #0B3B38; padding: 28px 32px; color: #FFFFFF; border-bottom: 4px solid #0F766E;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <h1 style="margin: 0 0 6px 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">${companyName} — تنبيهات الرقم المميز</h1>
-          <span style="background: rgba(255,255,255,0.15); padding: 4px 12px; border-radius: 6px; font-size: 12px;">نظام notifyme</span>
-        </div>
-        <p style="margin: 0; font-size: 14px; color: #A7F3D0;">تقرير التنبيهات للأشخاص المنتهية أرقامهم المميزة أو التي تنتهي خلال شهر (${dateStr})</p>
+      <!-- Header with explicit table spacing between logo and text for all email clients -->
+      <div style="background-color: #0B3B38; padding: 26px 30px; color: #FFFFFF; border-bottom: 4px solid #0F766E;">
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="border-collapse: collapse;">
+          <tr>
+            <td width="52" valign="middle" style="width: 52px; vertical-align: middle;">
+              <img src="${LOGO_URL}" alt="${safeCompany}" width="52" height="52" style="object-fit: contain; display: block; border: 0;" />
+            </td>
+            <td width="28" style="width: 28px; min-width: 28px; font-size: 1px; line-height: 1px;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td>
+            <td valign="middle" style="vertical-align: middle;">
+              <h1 style="margin: 0 0 8px 0; font-size: 22px; font-weight: 700; color: #FFFFFF; line-height: 1.4;">
+                <span dir="ltr" style="font-family: 'Momo Signature', 'Nunito Sans', Georgia, serif; font-size: 26px; font-weight: 400; letter-spacing: 0.5px;">${safeCompany}</span>
+                &nbsp;&mdash;&nbsp;
+                تنبيه انتهاء الرقم المدني
+              </h1>
+              <p style="margin: 0; font-size: 13px; color: #A7F3D0; line-height: 1.5;">تنبيه بأسماء الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً (${dateStr})</p>
+            </td>
+          </tr>
+        </table>
       </div>
 
-      <!-- Overview Stats Cards -->
-      <div style="padding: 24px 32px; background-color: #F8FAFC; border-bottom: 1px solid #E2E8F0;">
-        <div style="display: flex; gap: 16px;">
-          <div style="flex: 1; background: #FFFFFF; border: 1px solid #FDE68A; border-radius: 10px; padding: 16px; text-align: center;">
-            <div style="font-size: 13px; font-weight: 700; color: #92400E; margin-bottom: 4px;">تنتهي خلال شهر (٣٠ يوماً)</div>
-            <div style="font-size: 30px; font-weight: 800; color: #D97706; font-family: monospace;">${expiringSoonRecords.length}</div>
-          </div>
-          <div style="flex: 1; background: #FFFFFF; border: 1px solid #FECACA; border-radius: 10px; padding: 16px; text-align: center;">
-            <div style="font-size: 13px; font-weight: 700; color: #B91C1C; margin-bottom: 4px;">أرقام مميزة منتهية الصلاحية</div>
-            <div style="font-size: 30px; font-weight: 800; color: #DC2626; font-family: monospace;">${expiredRecords.length}</div>
-          </div>
-        </div>
-      </div>
-
-      <div style="padding: 32px;">
-
-        <!-- Section 1: Expiring Soon (خلال شهر) -->
+      <div style="padding: 28px;">
         ${
-          expiringSoonRecords.length > 0
+          matchedRecords.length > 0
             ? `
-          <div style="margin-bottom: 34px;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
-              <span style="display: inline-block; width: 10px; height: 10px; background-color: #D97706; border-radius: 50%;"></span>
-              <h2 style="margin: 0; font-size: 16px; font-weight: 800; color: #92400E;">الأشخاص الذين ينتهي رقمهم المميز خلال شهر (${expiringSoonRecords.length})</h2>
-            </div>
-            <div style="overflow-x: auto; border: 1px solid #FDE68A; border-radius: 8px;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
-                <thead>
-                  <tr style="background-color: #FFFBEB; color: #92400E; font-weight: 700; border-bottom: 1px solid #FDE68A;">
-                    <th style="padding: 10px 14px;">الاسم</th>
-                    <th style="padding: 10px 14px;">الرقم المميز</th>
-                    <th style="padding: 10px 14px;">تاريخ الانتهاء</th>
-                    <th style="padding: 10px 14px;">الجنسية</th>
-                    <th style="padding: 10px 14px;">رقم الجواز</th>
-                    <th style="padding: 10px 14px;">الأيام المتبقية</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${expiringSoonRows}
-                </tbody>
-              </table>
-            </div>
+          <p style="margin: 0 0 18px 0; font-size: 15px; font-weight: 600; color: #1E293B;">
+            يوجد (${matchedRecords.length}) ${matchedRecords.length === 1 ? "شخص متبقٍ" : "أشخاص متبقٍ"} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:
+          </p>
+          <div style="overflow-x: auto; border: 1px solid #E2E8F0; border-radius: 10px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: right;">
+              <thead>
+                <tr style="background-color: #F8FAFC; color: #475569; font-weight: 700; border-bottom: 1px solid #E2E8F0;">
+                  <th style="padding: 12px 16px;">اسم الشخص</th>
+                  <th style="padding: 12px 16px;">الرقم المدني</th>
+                  <th style="padding: 12px 16px;">تاريخ الانتهاء</th>
+                  <th style="padding: 12px 16px;">المتبقي</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${personRowsHtml}
+              </tbody>
+            </table>
           </div>
           `
             : `
-          <div style="margin-bottom: 24px; padding: 16px; background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; color: #166534; font-size: 13px;">
-            ✅ لا توجد أرقام مميزة تنتهي خلال هذا الشهر.
+          <div style="margin-bottom: 16px; padding: 18px; background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; color: #166534; font-size: 14px;">
+            ✅ لا يوجد حالياً أي شخص متبقٍ على انتهاء رقمه المدني ٣٠ يوماً اليوم (${dateStr}).
           </div>
           `
-        }
-
-        <!-- Section 2: Expired Records -->
-        ${
-          expiredRecords.length > 0
-            ? `
-          <div style="margin-bottom: 32px;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
-              <span style="display: inline-block; width: 10px; height: 10px; background-color: #DC2626; border-radius: 50%;"></span>
-              <h2 style="margin: 0; font-size: 16px; font-weight: 800; color: #B91C1C;">أرقام مميزة منتهية الصلاحية بالفعل (${expiredRecords.length})</h2>
-            </div>
-            <div style="overflow-x: auto; border: 1px solid #FECACA; border-radius: 8px;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
-                <thead>
-                  <tr style="background-color: #FEF2F2; color: #991B1B; font-weight: 700; border-bottom: 1px solid #FECACA;">
-                    <th style="padding: 10px 14px;">الاسم</th>
-                    <th style="padding: 10px 14px;">الرقم المميز</th>
-                    <th style="padding: 10px 14px;">تاريخ الانتهاء</th>
-                    <th style="padding: 10px 14px;">الجنسية</th>
-                    <th style="padding: 10px 14px;">رقم الجواز</th>
-                    <th style="padding: 10px 14px;">الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${expiredRows}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          `
-            : ""
-        }
-
-        <!-- Section 2: Expiring Soon Records -->
-        ${
-          expiringSoonRecords.length > 0
-            ? `
-          <div style="margin-bottom: 32px;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
-              <span style="display: inline-block; width: 10px; height: 10px; background-color: #D97706; border-radius: 50%;"></span>
-              <h2 style="margin: 0; font-size: 16px; font-weight: 800; color: #92400E;">الوثائق التي تنتهي قريباً (${expiringSoonRecords.length})</h2>
-            </div>
-            <div style="overflow-x: auto; border: 1px solid #FDE68A; border-radius: 8px;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: right;">
-                <thead>
-                  <tr style="background-color: #FFFBEB; color: #92400E; font-weight: 700; border-bottom: 1px solid #FDE68A;">
-                    <th style="padding: 10px 14px;">الاسم</th>
-                    <th style="padding: 10px 14px;">الرقم المميز</th>
-                    <th style="padding: 10px 14px;">انتهاء الرقم</th>
-                    <th style="padding: 10px 14px;">الجواز</th>
-                    <th style="padding: 10px 14px;">انتهاء الجواز</th>
-                    <th style="padding: 10px 14px;">الحالة المتبقية</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${expiringSoonRows}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          `
-            : ""
         }
 
         <!-- Action Button -->
-        <div style="text-align: center; margin: 36px 0 16px 0;">
-          <a href="${appUrl}" target="_blank" style="display: inline-block; background-color: #0F766E; color: #FFFFFF; font-weight: 700; font-size: 15px; padding: 13px 36px; border-radius: 8px; text-decoration: none; box-shadow: 0 2px 8px rgba(15,118,110,0.3);">
-            فتح لوحة التحكم ومتابعة التجديد
+        <div style="text-align: center; margin: 28px 0 8px 0;">
+          <a href="${escapeHtml(appUrl)}" target="_blank" style="display: inline-block; background-color: #0F766E; color: #FFFFFF; font-weight: 700; font-size: 14px; padding: 12px 32px; border-radius: 8px; text-decoration: none;">
+            فتح لوحة التحكم
           </a>
         </div>
-
       </div>
 
       <!-- Footer -->
-      <div style="background-color: #F8FAFC; padding: 20px 32px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 12px; color: #64748B;">
-        <p style="margin: 0 0 4px 0;">هذا إشعار آلي صادر يومياً من نظام <strong>${companyName}</strong> إلى مسؤولي النظام المعتمدين.</p>
-        <p style="margin: 0;">يُرجى عدم الرد المباشر على هذه الرسالة.</p>
+      <div style="background-color: #F8FAFC; padding: 16px 28px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 12px; color: #64748B;">
+        <p style="margin: 0;">إشعار آلي من <strong>${safeCompany}</strong> — يُرجى عدم الرد على هذه الرسالة.</p>
       </div>
 
     </div>
@@ -276,18 +263,6 @@ Deno.serve(async (req) => {
     const alertEmailFrom = Deno.env.get("ALERT_EMAIL_FROM") || gmailUser || "onboarding@resend.dev";
     const alertToEmail = Deno.env.get("ALERT_TO_EMAIL") || Deno.env.get("ADMIN_EMAILS");
     const appUrl = Deno.env.get("APP_URL") || "http://localhost:3000";
-    const cronSecret = Deno.env.get("CRON_SECRET");
-
-    // If CRON_SECRET is configured, allow matching x-cron-secret or Bearer token
-    if (cronSecret) {
-      const authHeader = req.headers.get("authorization") || "";
-      const xCronHeader = req.headers.get("x-cron-secret") || "";
-      const isCronSecretMatch =
-        xCronHeader === cronSecret ||
-        authHeader.includes(cronSecret) ||
-        authHeader.includes(supabaseServiceKey || "");
-      // Non-fatal if regular authenticated user calls from app dashboard
-    }
 
     if (!supabaseUrl || !supabaseServiceKey) {
       return new Response(
@@ -298,11 +273,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Initialize Supabase Admin client
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Parse optional request parameters
-    let requestBody: any = {};
+    let requestBody: Record<string, unknown> = {};
     try {
       if (req.headers.get("content-type")?.includes("application/json")) {
         requestBody = await req.json();
@@ -312,67 +286,100 @@ Deno.serve(async (req) => {
     }
 
     const isDryRun = Boolean(requestBody.dry_run);
-    const customTestEmail = requestBody.test_email?.trim();
+    const customTestEmail =
+      typeof requestBody.test_email === "string" ? requestBody.test_email.trim() : "";
+    const forceSend = Boolean(requestBody.force_send || customTestEmail);
 
-    // 1. Fetch company name from settings (default: notifyme)
-    let companyName = "notifyme";
+    // 1. Fetch company name from settings (default: A'system)
+    let companyName = "A'system";
     const { data: settingsData } = await supabaseAdmin
       .from("settings")
       .select("company_name")
       .limit(1)
       .maybeSingle();
 
-    if (settingsData?.company_name) {
+    if (
+      settingsData?.company_name &&
+      settingsData.company_name !== "notifyme" &&
+      settingsData.company_name !== "برنامج التنبيه"
+    ) {
       companyName = settingsData.company_name;
     }
 
-    // 2. Fetch records that need attention from records_with_status view
-    // Specifically focused on Unique Number (الرقم المميز): expiring within 1 month (30 days) or expired
+    // 2. Fetch all records and calculate exact 30-day before-date in Asia/Kuwait timezone
+    const todayKuwaitYmd = getTodayKuwaitYmd();
+
     const { data: recordsData, error: recordsError } = await supabaseAdmin
-      .from("records_with_status")
+      .from("records")
       .select("*");
 
     if (recordsError) {
       throw recordsError;
     }
 
-    const records: AlertRecord[] = recordsData || [];
+    const allRecords: AlertRecord[] = (recordsData || []).map((r: any) => {
+      const uniqueExpiryYmd = extractYmd(
+        r.unique_number_expiry_date || r.unique_number_expiry
+      );
+      const beforeDateYmd = uniqueExpiryYmd ? addDaysToYmd(uniqueExpiryYmd, -30) : null;
+      const daysLeft = uniqueExpiryYmd ? diffDaysYmd(uniqueExpiryYmd, todayKuwaitYmd) : undefined;
+      return {
+        ...r,
+        uniqueExpiryYmd: uniqueExpiryYmd || undefined,
+        beforeDateYmd: beforeDateYmd || undefined,
+        daysLeft,
+      };
+    });
 
-    // Filter strictly for Unique Number (الرقم المميز) expiring within 1 month or expired
-    const expiredRecords = records.filter(
-      (r) => r.unique_number_status === "expired"
+    // Fetch already-sent notifications for (record_id, kind='unique_number', channel='email')
+    const { data: existingLogs } = await supabaseAdmin
+      .from("notifications_log")
+      .select("record_id, target_expiry, status")
+      .eq("kind", "unique_number")
+      .eq("channel", "email")
+      .eq("status", "sent");
+
+    const alreadySentSet = new Set<string>(
+      (existingLogs || []).map((row: any) => `${row.record_id}|${String(row.target_expiry).slice(0, 10)}`)
     );
 
-    const expiringSoonRecords = records.filter(
-      (r) => r.unique_number_status === "expiring_soon"
-    );
+    // Core rule: before_date == expiry_date - 30 days == todayKuwaitYmd
+    const exact30DayDueRecords = allRecords.filter((r) => {
+      if (!r.uniqueExpiryYmd || !r.beforeDateYmd) return false;
+      if (r.beforeDateYmd !== todayKuwaitYmd) return false;
+      return !alreadySentSet.has(`${r.id}|${r.uniqueExpiryYmd}`);
+    });
 
-    const totalNeedingAlert = expiredRecords.length + expiringSoonRecords.length;
-    const forceSend = Boolean(requestBody.force_send || customTestEmail);
-
-    // If no records require attention and not in force/test mode
-    if (totalNeedingAlert === 0 && !forceSend) {
+    // If not in dry-run or force/test mode, and no record has before_date == todayKuwaitYmd, exit cleanly
+    if (exact30DayDueRecords.length === 0 && !forceSend && !isDryRun) {
       return new Response(
         JSON.stringify({
           success: true,
-          message: "لا توجد أي وثائق منتهية أو على وشك الانتهاء اليوم في النظام. تم الفحص بنجاح.",
+          message: "لا يوجد أشخاص متبقٍ على انتهاء رقمهم المميز ٣٠ يوماً اليوم.",
+          today_kuwait: todayKuwaitYmd,
           count: 0,
-          expired_count: 0,
-          expiring_soon_count: 0,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 3. Determine recipients (Admins)
+    // For dry_run or test mode when exact30DayDueRecords is empty, preview upcoming <=30 days if available
+    let recordsForEmail = exact30DayDueRecords;
+    let isTestFallback = false;
+    if (recordsForEmail.length === 0 && (forceSend || isDryRun)) {
+      isTestFallback = true;
+      recordsForEmail = allRecords.filter(
+        (r) => typeof r.daysLeft === "number" && r.daysLeft >= 0 && r.daysLeft <= 30
+      );
+    }
+
+    // 3. Determine recipient emails (Admins)
     let recipientEmails: string[] = [];
 
-    // Priority 1: Explicit test email passed in request body
     if (customTestEmail) {
       recipientEmails = [customTestEmail];
     }
 
-    // Priority 2: Configured ALERT_TO_EMAIL or ADMIN_EMAILS in Secrets
     if (recipientEmails.length === 0 && alertToEmail) {
       recipientEmails = alertToEmail
         .split(/[;,]/)
@@ -380,7 +387,6 @@ Deno.serve(async (req) => {
         .filter(Boolean);
     }
 
-    // Priority 3: Admin IDs in database profiles table (role = 'admin')
     if (recipientEmails.length === 0) {
       try {
         const { data: adminProfiles } = await supabaseAdmin
@@ -403,12 +409,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Priority 4: GMAIL_USER (the administrator's configured Gmail account!)
     if (recipientEmails.length === 0 && gmailUser) {
       recipientEmails = [gmailUser];
     }
 
-    // Priority 5: Fallback to any active auth user
     if (recipientEmails.length === 0) {
       try {
         const { data: allUsers } = await supabaseAdmin.auth.admin.listUsers({ perPage: 5 });
@@ -427,75 +431,85 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "لم يتم العثور على أي عنوان بريد إلكتروني للمستلم. يرجى تمرير البريد في الطلب أو ضبط GMAIL_USER أو ALERT_TO_EMAIL في Supabase Secrets.",
-          expired_count: expiredRecords.length,
-          expiring_soon_count: expiringSoonRecords.length,
+          error:
+            "لم يتم العثور على أي عنوان بريد إلكتروني للمستلم. يرجى ضبط حساب المسؤول أو GMAIL_USER في Supabase Secrets.",
+          count: exact30DayDueRecords.length,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Format today's date in Kuwait timezone
-    const todayKuwaitStr = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Kuwait",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    }).format(new Date());
+    const todayDisplayStr = formatDateKuwait(todayKuwaitYmd);
 
-    // Generate HTML template
     const emailHtml = buildAlertEmailHtml({
       companyName,
       appUrl,
-      dateStr: todayKuwaitStr,
-      expiredRecords,
-      expiringSoonRecords,
+      dateStr: todayDisplayStr,
+      matchedRecords: recordsForEmail,
+      isTestFallback,
     });
 
-    const emailSubject = `⚠️ تنبيه انتهاء الرقم المميز: ${expiringSoonRecords.length} ينتهي خلال شهر، و ${expiredRecords.length} منتهي - ${companyName}`;
+    const emailSubject =
+      exact30DayDueRecords.length > 0
+        ? `⚠️ تنبيه: ${exact30DayDueRecords.length} شخص متبقٍ على انتهاء الرقم المدني ٣٠ يوماً - ${companyName}`
+        : `🔔 رسالة اختبار التنبيهات - ${companyName}`;
 
-    // If dry run, return preview without dispatching actual email
+    const notificationSummaryLines = recordsForEmail.slice(0, 4).map((r) => {
+      const personName = r.full_name || r.name || "—";
+      const civilId = r.unique_number || "—";
+      const expiry = formatDateKuwait(r.uniqueExpiryYmd || r.unique_number_expiry_date || r.unique_number_expiry);
+      const daysVal = typeof r.daysLeft === "number" ? r.daysLeft : 30;
+      return `• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${daysVal} يوم)`;
+    });
+
+    const notificationPayload = {
+      title: emailSubject,
+      body:
+        recordsForEmail.length > 0
+          ? `يوجد (${recordsForEmail.length}) ${recordsForEmail.length === 1 ? "شخص متبقٍ" : "أشخاص متبقٍ"} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:\n${notificationSummaryLines.join("\n")}`
+          : `لا يوجد حالياً أي شخص متبقٍ على انتهاء رقمه المدني ٣٠ يوماً اليوم (${todayDisplayStr}).`,
+      url: "/notifications",
+    };
+
+    // Dry run preview
     if (isDryRun) {
       return new Response(
         JSON.stringify({
           success: true,
           dry_run: true,
-          message: "معاينة التقرير جاهزة بنجاح (وضع المعاينة).",
+          message: "معاينة التقرير جاهزة بنجاح.",
           recipients: recipientEmails,
-          expired_count: expiredRecords.length,
-          expiring_soon_count: expiringSoonRecords.length,
+          count: exact30DayDueRecords.length,
           html_preview: emailHtml,
+          notification_payload: notificationPayload,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // 4. Send Email via Gmail SMTP or Resend
-    let emailSendResult: any = null;
-    let sendStatus = "sent";
+    let emailSendResult: unknown = null;
+    let sendStatus: "sent" | "failed" = "sent";
     let sendErrorMessage: string | null = null;
 
     if (gmailUser && gmailAppPassword) {
-      // Send directly using Gmail SMTP with Google App Password
       try {
         const transporter = nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
-          secure: true, // SSL
+          secure: true,
           auth: {
             user: gmailUser,
             pass: gmailAppPassword,
           },
         });
 
-        const info = await transporter.sendMail({
+        emailSendResult = await transporter.sendMail({
           from: `"${companyName}" <${gmailUser}>`,
           to: recipientEmails.join(", "),
           subject: emailSubject,
           html: emailHtml,
         });
-
-        emailSendResult = info;
         sendStatus = "sent";
       } catch (gmailErr: any) {
         console.error("Gmail SMTP error:", gmailErr);
@@ -518,48 +532,69 @@ Deno.serve(async (req) => {
           }),
         });
 
-        emailSendResult = await resendRes.json();
+        const resendJson = await resendRes.json();
+        emailSendResult = resendJson;
         if (!resendRes.ok) {
           sendStatus = "failed";
-          sendErrorMessage = emailSendResult?.message || "فشل إرسال البريد عبر Resend API";
+          sendErrorMessage = resendJson?.message || "فشل إرسال البريد عبر Resend API";
         }
       } catch (err: any) {
         sendStatus = "failed";
         sendErrorMessage = err.message || "خطأ أثناء الاتصال بمزود البريد";
       }
     } else {
-      // Neither Gmail nor Resend is configured yet
-      sendStatus = "simulated_success";
+      sendStatus = "failed";
       sendErrorMessage =
-        "تم فحص الوثائق وتوليد التقرير بنجاح. لتفعيل الإرسال الفعلي عبر البريد، يرجى ضبط مفاتيح GMAIL_USER و GMAIL_APP_PASSWORD في إعدادات Supabase Secrets.";
+        "لم يتم إعداد مفاتيح البريد (GMAIL_USER و GMAIL_APP_PASSWORD أو RESEND_API_KEY) في Supabase Secrets.";
     }
 
-    // 5. Insert record into notifications_log table
-    try {
-      const summaryText = `تنبيه يومي: ${expiredRecords.length} منتهية، ${expiringSoonRecords.length} تنتهي قريباً.`;
-      
-      await supabaseAdmin.from("notifications_log").insert({
-        recipient_email: recipientEmails.join(", "),
-        notification_type: "daily_expiry_alert",
+    // 5. Save each matched 30-day record into public.notifications_log
+    // Exact schema columns: record_id, kind, channel, target_expiry, status, error, sent_at
+    let loggedCount = 0;
+    let logError: string | null = null;
+
+    if (exact30DayDueRecords.length > 0) {
+      const nowIso = new Date().toISOString();
+      const logRows = exact30DayDueRecords.map((rec) => ({
+        record_id: rec.id,
+        kind: "unique_number",
+        channel: "email",
+        target_expiry: rec.uniqueExpiryYmd!,
         status: sendStatus,
-        summary: summaryText,
-        sent_at: new Date().toISOString(),
-      });
-    } catch (logErr) {
-      console.warn("Could not write to notifications_log table:", logErr);
+        error: sendStatus === "failed" ? sendErrorMessage : null,
+        sent_at: nowIso,
+      }));
+
+      const { error: upsertErr } = await supabaseAdmin
+        .from("notifications_log")
+        .upsert(logRows, {
+          onConflict: "record_id,kind,channel,target_expiry",
+        });
+
+      if (upsertErr) {
+        console.error("Failed to save to notifications_log:", upsertErr);
+        logError = upsertErr.message;
+      } else {
+        loggedCount = logRows.length;
+      }
     }
 
     return new Response(
       JSON.stringify({
-        success: sendStatus !== "failed",
+        success: sendStatus === "sent",
         status: sendStatus,
+        today_kuwait: todayKuwaitYmd,
+        matched_count: exact30DayDueRecords.length,
+        logged_count: loggedCount,
+        log_error: logError,
         message:
           sendStatus === "failed"
             ? `فشل إرسال البريد: ${sendErrorMessage}`
-            : `تم إرسال التنبيه اليومي بنجاح إلى ${recipientEmails.length} من المسؤولين.`,
+            : exact30DayDueRecords.length > 0
+            ? `تم إرسال التنبيه وتسجيل ${loggedCount} سجل متبقٍ على انتهائه ٣٠ يوماً بنجاح.`
+            : `تم إرسال رسالة الاختبار بنجاح إلى ${recipientEmails.length} من المسؤولين (لا توجد سجلات متبقٍ لها ٣٠ يوماً اليوم).`,
         recipients: recipientEmails,
-        expired_count: expiredRecords.length,
-        expiring_soon_count: expiringSoonRecords.length,
+        notification_payload: notificationPayload,
         details: emailSendResult,
         warning: sendErrorMessage,
       }),
@@ -570,7 +605,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message || "حدث خطأ أثناء تنفيذ دالة التنبيهات اليومية.",
+        error: error.message || "حدث خطأ أثناء تنفيذ دالة التنبيهات.",
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
