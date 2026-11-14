@@ -8,6 +8,7 @@ import { formatKuwaitDate, getTodayKuwaitDateString } from './date';
 
 const DEVICE_NOTIFY_PREF_KEY = 'asystem_device_notifications_enabled';
 const NOTIFIED_KEYS_STORAGE = 'asystem_notified_alert_keys';
+export const NOTIF_PREF_EVENT = 'asystem-notif-pref-changed';
 
 export interface DeviceNotificationPayload {
   title: string;
@@ -16,6 +17,14 @@ export interface DeviceNotificationPayload {
   tag?: string;
   dir?: 'rtl' | 'ltr';
   lang?: string;
+}
+
+export function isRunningInIframe(): boolean {
+  try {
+    return typeof window !== 'undefined' && window.self !== window.top;
+  } catch {
+    return true;
+  }
 }
 
 export function isDeviceNotificationsSupported(): boolean {
@@ -35,15 +44,53 @@ export function isDeviceNotificationsEnabled(): boolean {
 
 export function setDeviceNotificationsEnabled(enabled: boolean): void {
   localStorage.setItem(DEVICE_NOTIFY_PREF_KEY, enabled ? 'true' : 'false');
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(NOTIF_PREF_EVENT));
+  }
 }
 
 export async function requestDeviceNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
   if (!isDeviceNotificationsSupported()) return 'unsupported';
-  const permission = await Notification.requestPermission();
-  if (permission === 'granted') {
-    setDeviceNotificationsEnabled(true);
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      setDeviceNotificationsEnabled(true);
+    } else if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(NOTIF_PREF_EVENT));
+    }
+    return permission;
+  } catch {
+    return Notification.permission;
   }
-  return permission;
+}
+
+/**
+ * Computes exact calendar days left in Asia/Kuwait timezone (matches Edge Function logic 1:1)
+ */
+export function computeKuwaitDaysLeft(dateStr?: string | null): number | null {
+  if (!dateStr) return null;
+  const trimmed = String(dateStr).trim();
+  const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+  const targetYmd = match ? match[1] : null;
+  if (!targetYmd) return null;
+
+  const todayYmd = getTodayKuwaitDateString();
+  const [ty, tm, td] = targetYmd.split('-').map(Number);
+  const [by, bm, bd] = todayYmd.split('-').map(Number);
+  const tUtc = Date.UTC(ty, tm - 1, td);
+  const bUtc = Date.UTC(by, bm - 1, bd);
+  return Math.round((tUtc - bUtc) / 86400000);
+}
+
+export function filterExact30DayCivilIdRecords(records: RecordItem[]): RecordItem[] {
+  return records.filter((r) => {
+    const expiryStr = r.unique_number_expiry_date || r.unique_number_expiry;
+    const kuwaitDays = computeKuwaitDaysLeft(expiryStr);
+    if (kuwaitDays !== null) {
+      return kuwaitDays === 30;
+    }
+    return r.unique_number_days_left === 30;
+  });
 }
 
 /**
@@ -61,9 +108,10 @@ export function buildExpiryAlertMessage(
   companyName = "A'system",
   lang: 'ar' | 'en' = 'ar'
 ): DeviceNotificationPayload {
-  const brand = companyName && companyName !== 'notifyme' && companyName !== 'برنامج التنبيه'
-    ? companyName
-    : "A'system";
+  const brand =
+    companyName && companyName !== 'notifyme' && companyName !== 'برنامج التنبيه'
+      ? companyName
+      : "A'system";
 
   if (matchedRecords.length === 0) {
     return {
@@ -91,8 +139,15 @@ export function buildExpiryAlertMessage(
   const summaryLines = matchedRecords.slice(0, 4).map((r) => {
     const personName = r.full_name || r.name || '—';
     const civilId = r.unique_number || '—';
-    const expiry = formatKuwaitDate(r.unique_number_expiry_date || r.unique_number_expiry);
-    const days = typeof r.unique_number_days_left === 'number' ? r.unique_number_days_left : 30;
+    const expiryRaw = r.unique_number_expiry_date || r.unique_number_expiry;
+    const expiry = formatKuwaitDate(expiryRaw);
+    const kuwaitDays = computeKuwaitDaysLeft(expiryRaw);
+    const days =
+      kuwaitDays !== null
+        ? kuwaitDays
+        : typeof r.unique_number_days_left === 'number'
+        ? r.unique_number_days_left
+        : 30;
     return lang === 'ar'
       ? `• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${days} يوم)`
       : `• ${personName} (${civilId}) — Expires ${expiry} (${days} days left)`;
@@ -120,7 +175,27 @@ export function buildExpiryAlertMessage(
 }
 
 /**
- * Dispatches an OS-level notification via Service Worker (for PWA desktop/mobile) or Notification API fallback
+ * Waits up to timeoutMs for an active ServiceWorkerRegistration
+ */
+async function getActiveServiceWorkerRegistration(
+  timeoutMs = 1500
+): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const reg = await Promise.race<ServiceWorkerRegistration | null>([
+      navigator.serviceWorker.ready,
+      new Promise<null>((resolve) => window.setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    if (reg && reg.active) return reg;
+    const fallback = await navigator.serviceWorker.getRegistration();
+    return fallback && fallback.active ? fallback : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dispatches an OS-level notification via active Service Worker (for PWA desktop/mobile) or Notification API fallback
  */
 export async function showDeviceNotification(
   payload: DeviceNotificationPayload
@@ -128,31 +203,32 @@ export async function showDeviceNotification(
   if (!isDeviceNotificationsSupported()) return false;
   if (Notification.permission !== 'granted') return false;
 
-  const options: NotificationOptions & { renotify?: boolean } = {
-    body: payload.body,
-    icon: '/pwa-192x192.png',
-    badge: '/pwa-192x192.png',
-    dir: payload.dir || 'rtl',
-    lang: payload.lang || 'ar',
-    tag: payload.tag || 'asystem-expiry-alert',
-    renotify: true,
-    data: { url: payload.url || '/notifications' },
-  };
-
-  try {
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.getRegistration();
-      if (registration) {
-        await registration.showNotification(payload.title, options);
-        return true;
-      }
+  const swReg = await getActiveServiceWorkerRegistration();
+  if (swReg) {
+    try {
+      await swReg.showNotification(payload.title, {
+        body: payload.body,
+        icon: '/pwa-192x192.png',
+        badge: '/pwa-192x192.png',
+        dir: payload.dir || 'rtl',
+        lang: payload.lang || 'ar',
+        tag: payload.tag || 'asystem-expiry-alert',
+        data: { url: payload.url || '/notifications' },
+      } as NotificationOptions);
+      return true;
+    } catch (err) {
+      console.warn('ServiceWorker showNotification failed, falling back to Notification API:', err);
     }
-  } catch (err) {
-    console.warn('ServiceWorker showNotification failed, falling back to Notification API:', err);
   }
 
   try {
-    const notification = new Notification(payload.title, options);
+    const notification = new Notification(payload.title, {
+      body: payload.body,
+      icon: '/pwa-192x192.png',
+      dir: payload.dir || 'rtl',
+      lang: payload.lang || 'ar',
+      tag: payload.tag || 'asystem-expiry-alert',
+    });
     notification.onclick = () => {
       window.focus();
       if (payload.url && window.location.pathname !== payload.url) {
@@ -200,8 +276,4 @@ export function markNotifiedTodayForKeys(dedupeKeys: string[]): void {
   } catch {
     // ignore storage errors
   }
-}
-
-export function filterExact30DayCivilIdRecords(records: RecordItem[]): RecordItem[] {
-  return records.filter((r) => r.unique_number_days_left === 30);
 }

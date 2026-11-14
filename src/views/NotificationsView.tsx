@@ -33,6 +33,8 @@ import {
   filterExact30DayCivilIdRecords,
   getDeviceNotificationPermission,
   isDeviceNotificationsEnabled,
+  isRunningInIframe,
+  NOTIF_PREF_EVENT,
   requestDeviceNotificationPermission,
   setDeviceNotificationsEnabled,
   showDeviceNotification,
@@ -110,6 +112,15 @@ export const NotificationsView: React.FC = () => {
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
+
+  useEffect(() => {
+    const sync = () => {
+      setDevicePermission(getDeviceNotificationPermission());
+      setDeviceNotifOn(isDeviceNotificationsEnabled());
+    };
+    window.addEventListener(NOTIF_PREF_EVENT, sync);
+    return () => window.removeEventListener(NOTIF_PREF_EVENT, sync);
+  }, []);
 
   const handleTriggerAlerts = async (isDryRun = false) => {
     setTriggering(true);
@@ -465,6 +476,13 @@ export const NotificationsView: React.FC = () => {
                 ? 'تصلك نفس رسالة البريد الإلكتروني كإشعار مباشر على الكمبيوتر أو الهاتف عند تثبيت التطبيق كأيقونة (على الآيفون: أضفه أولاً للشاشة الرئيسية).'
                 : 'Receives the exact same email alert message as a native notification on desktop or phone when installed as an app icon.'}
             </p>
+            {isRunningInIframe() && devicePermission !== 'granted' && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold mt-1">
+                {isAr
+                  ? 'تنبيه: المتصفح يمنع إشعارات النظام داخل نافذة المعاينة (iframe). افتح الرابط في تبويب مستقل أو ثبّت التطبيق كأيقونة لتظهر الإشعارات.'
+                  : 'Note: Browsers block notification prompts inside embedded iframes. Open the app URL in its own tab or install it as an app icon.'}
+              </p>
+            )}
           </div>
         </div>
 

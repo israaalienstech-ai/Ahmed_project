@@ -11,18 +11,24 @@ import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { RecordFormView } from './views/RecordFormView';
 import { NotificationsView } from './views/NotificationsView';
-import { Menu, Sun, Moon, Languages } from 'lucide-react';
+import { Menu, Sun, Moon, Languages, BellRing, AlertTriangle, X } from 'lucide-react';
 import { registerSW } from 'virtual:pwa-register';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { RecordItem } from './types';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { triggerAutomaticExpiryCheck } from './utils/autoAlertTrigger';
 import {
   buildExpiryAlertMessage,
+  DeviceNotificationPayload,
   filterExact30DayCivilIdRecords,
+  getDeviceNotificationPermission,
   hasNotifiedTodayForKey,
   isDeviceNotificationsEnabled,
+  isRunningInIframe,
   markNotifiedTodayForKeys,
+  NOTIF_PREF_EVENT,
+  requestDeviceNotificationPermission,
   showDeviceNotification,
 } from './utils/deviceNotifications';
 
@@ -52,6 +58,11 @@ function MainAppContent() {
 
   const [route, setRoute] = useState<AppRoute>(parseCurrentRoute());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [liveAlertBanner, setLiveAlertBanner] = useState<DeviceNotificationPayload | null>(null);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(() =>
+    getDeviceNotificationPermission()
+  );
+  const [promptDismissed, setPromptDismissed] = useState(false);
 
   const navigateTo = (newRoute: AppRoute) => {
     setRoute(newRoute);
@@ -92,12 +103,26 @@ function MainAppContent() {
     }
   }, []);
 
-  // Sync exact 30-day email alerts as OS-level desktop/phone notifications + Realtime listener
+  // Auto-trigger email alerts & sync OS/in-app notifications whenever 30-day records exist
+  useEffect(() => {
+    const syncPerm = () => setNotifPermission(getDeviceNotificationPermission());
+    window.addEventListener(NOTIF_PREF_EVENT, syncPerm);
+    return () => window.removeEventListener(NOTIF_PREF_EVENT, syncPerm);
+  }, []);
+
   useEffect(() => {
     if (!user || !isSupabaseConfigured) return;
 
-    const checkAndNotify30DayAlerts = async () => {
-      if (!isDeviceNotificationsEnabled()) return;
+    const runAutomaticChecks = async () => {
+      // 1. Trigger idempotent backend email & log check (only sends if un-logged 30-day record exists)
+      await triggerAutomaticExpiryCheck({
+        lang,
+        onAlertTriggered: (payload) => {
+          setLiveAlertBanner(payload);
+        },
+      });
+
+      // 2. Check local 30-day records for in-app banner & device OS notification
       try {
         const { data, error } = await supabase.from('records_with_status').select('*');
         if (error || !data) return;
@@ -105,16 +130,26 @@ function MainAppContent() {
         const dueRecords = filterExact30DayCivilIdRecords(data as RecordItem[]);
         if (dueRecords.length === 0) return;
 
+        const payload = buildExpiryAlertMessage(dueRecords, companyName, lang);
+        setLiveAlertBanner(payload);
+
+        if (!isDeviceNotificationsEnabled()) return;
+
         const unnotified = dueRecords.filter(
-          (r) => !hasNotifiedTodayForKey(`${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`)
+          (r) =>
+            !hasNotifiedTodayForKey(
+              `${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`
+            )
         );
         if (unnotified.length === 0) return;
 
-        const payload = buildExpiryAlertMessage(unnotified, companyName, lang);
-        const shown = await showDeviceNotification(payload);
+        const unnotifiedPayload = buildExpiryAlertMessage(unnotified, companyName, lang);
+        const shown = await showDeviceNotification(unnotifiedPayload);
         if (shown) {
           markNotifiedTodayForKeys(
-            unnotified.map((r) => `${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`)
+            unnotified.map(
+              (r) => `${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`
+            )
           );
         }
       } catch (err) {
@@ -122,9 +157,15 @@ function MainAppContent() {
       }
     };
 
-    checkAndNotify30DayAlerts();
+    runAutomaticChecks();
 
-    const intervalId = window.setInterval(checkAndNotify30DayAlerts, 30 * 60 * 1000);
+    const intervalId = window.setInterval(runAutomaticChecks, 10 * 60 * 1000);
+    const handlePrefEnabled = () => {
+      if (isDeviceNotificationsEnabled()) {
+        runAutomaticChecks();
+      }
+    };
+    window.addEventListener(NOTIF_PREF_EVENT, handlePrefEnabled);
 
     const realtimeChannel = supabase
       .channel('notifications_log_device_alerts')
@@ -132,7 +173,6 @@ function MainAppContent() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications_log' },
         async (payload) => {
-          if (!isDeviceNotificationsEnabled()) return;
           const row = payload.new as {
             record_id?: string;
             status?: string;
@@ -142,8 +182,6 @@ function MainAppContent() {
           if (!row || row.status !== 'sent' || row.kind !== 'unique_number' || !row.record_id) {
             return;
           }
-          const dedupeKey = `${row.record_id}|${row.target_expiry || ''}`;
-          if (hasNotifiedTodayForKey(dedupeKey)) return;
 
           const { data: rec } = await supabase
             .from('records_with_status')
@@ -153,9 +191,14 @@ function MainAppContent() {
 
           if (rec) {
             const msg = buildExpiryAlertMessage([rec as RecordItem], companyName, lang);
-            const shown = await showDeviceNotification(msg);
-            if (shown) {
-              markNotifiedTodayForKeys([dedupeKey]);
+            setLiveAlertBanner(msg);
+
+            const dedupeKey = `${row.record_id}|${row.target_expiry || ''}`;
+            if (isDeviceNotificationsEnabled() && !hasNotifiedTodayForKey(dedupeKey)) {
+              const shown = await showDeviceNotification(msg);
+              if (shown) {
+                markNotifiedTodayForKeys([dedupeKey]);
+              }
             }
           }
         }
@@ -164,9 +207,26 @@ function MainAppContent() {
 
     return () => {
       window.clearInterval(intervalId);
+      window.removeEventListener(NOTIF_PREF_EVENT, handlePrefEnabled);
       supabase.removeChannel(realtimeChannel);
     };
   }, [user, companyName, lang]);
+
+  const handleRequestNotifPermissionBanner = async () => {
+    const result = await requestDeviceNotificationPermission();
+    setNotifPermission(result);
+    if (result === 'granted') {
+      await showDeviceNotification({
+        title: isAr ? "تم تفعيل إشعارات A'system التلقائية" : "A'system Automatic Alerts Enabled",
+        body: isAr
+          ? 'سيتم تنبيهك تلقائياً فور بقاء ٣٠ يوماً على انتهاء الرقم المدني لأي شخص.'
+          : 'You will automatically receive alerts when any Civil ID has 30 days remaining.',
+        url: '/notifications',
+        dir: isAr ? 'rtl' : 'ltr',
+        lang,
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -250,7 +310,79 @@ function MainAppContent() {
         </header>
 
         {/* View Port Container */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-5">
+          {/* Prompt to enable OS notifications if permission is still 'default' */}
+          {notifPermission === 'default' && !promptDismissed && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 rounded-xl text-sm text-teal-950 dark:text-teal-100 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <BellRing className="w-5 h-5 text-[#0F766E] dark:text-teal-400 shrink-0" />
+                <div>
+                  <p className="font-bold text-xs sm:text-sm">
+                    {isAr
+                      ? 'فعّل إشعارات الجهاز ليصلك التنبيه التلقائي على الكمبيوتر والهاتف'
+                      : 'Enable device notifications for automatic alerts on desktop & mobile'}
+                  </p>
+                  {isRunningInIframe() && (
+                    <p className="text-[11px] text-teal-800/80 dark:text-teal-300/80 mt-0.5">
+                      {isAr
+                        ? 'ملاحظة: عند فتح التطبيق في نافذة مستقلة أو تثبيته كأيقونة ستعمل إشعارات النظام بكامل كفاءتها.'
+                        : 'Note: System notifications work best when opened in its own window or installed as an app icon.'}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRequestNotifPermissionBanner}
+                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-lg transition-colors cursor-pointer"
+                >
+                  {isAr ? 'تفعيل الإشعارات الآن' : 'Enable Notifications'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPromptDismissed(true)}
+                  className="p-1 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900 rounded-lg cursor-pointer"
+                  title={isAr ? 'إخفاء' : 'Dismiss'}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Live Automatic 30-Day Expiry Alert Banner (Always visible even if OS alerts are blocked) */}
+          {liveAlertBanner && (
+            <div className="flex items-start justify-between gap-3 p-4 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl text-amber-950 dark:text-amber-100 shadow-xs">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-bold">{liveAlertBanner.title}</p>
+                  <p className="text-xs whitespace-pre-line leading-relaxed text-amber-900 dark:text-amber-200">
+                    {liveAlertBanner.body}
+                  </p>
+                  {route.path !== 'notifications' && (
+                    <button
+                      type="button"
+                      onClick={() => navigateTo({ path: 'notifications' })}
+                      className="inline-block mt-1 text-xs font-bold text-[#0F766E] dark:text-teal-300 underline hover:no-underline cursor-pointer"
+                    >
+                      {isAr ? 'عرض سجل الإشعارات والبريد' : 'View Notifications Log'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveAlertBanner(null)}
+                className="p-1 text-amber-700 dark:text-amber-300 hover:bg-amber-200/60 dark:hover:bg-amber-900 rounded-lg cursor-pointer shrink-0"
+                title={isAr ? 'إغلاق التنبيه' : 'Dismiss alert'}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {route.path === 'notifications' && <NotificationsView />}
 
           {route.path === 'records' && (

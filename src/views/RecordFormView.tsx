@@ -26,6 +26,8 @@ import { toInputDateFormat, isPassportExpiryValid } from '../utils/date';
 import { translateErrorMessage } from '../utils/errors';
 import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 import { usePreferences } from '../context/PreferencesContext';
+import { triggerAutomaticExpiryCheck } from '../utils/autoAlertTrigger';
+import { computeKuwaitDaysLeft } from '../utils/deviceNotifications';
 
 interface RecordFormViewProps {
   recordId?: string | null;
@@ -364,14 +366,24 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
         }
       }
 
+      let autoAlertMsg = '';
+      if (computeKuwaitDaysLeft(civilIdExpiry) === 30) {
+        const alertRes = await triggerAutomaticExpiryCheck({ lang });
+        if (alertRes && alertRes.matchedCount > 0) {
+          autoAlertMsg = isAr
+            ? ' وتم إرسال البريد الإلكتروني والإشعار تلقائياً.'
+            : ' Automatic email and notification sent.';
+        }
+      }
+
       setSuccessToast(
-        isEditing
+        (isEditing
           ? isAr
             ? 'تم تحديث السجل بنجاح!'
             : 'Record updated successfully!'
           : isAr
           ? 'تم إنشاء السجل والوثائق بنجاح!'
-          : 'Record and documents saved successfully!'
+          : 'Record and documents saved successfully!') + autoAlertMsg
       );
       setTimeout(() => {
         onSaved();

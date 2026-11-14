@@ -23,6 +23,7 @@ import { PWAInstallButton } from './PWAInstallButton';
 import {
   getDeviceNotificationPermission,
   isDeviceNotificationsEnabled,
+  NOTIF_PREF_EVENT,
   requestDeviceNotificationPermission,
   setDeviceNotificationsEnabled,
   showDeviceNotification,
@@ -47,6 +48,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { isDark, toggleTheme, lang, isRtl, toggleLang } = usePreferences();
   const isAr = lang === 'ar';
   const [notifEnabled, setNotifEnabled] = React.useState<boolean>(() => isDeviceNotificationsEnabled());
+
+  React.useEffect(() => {
+    const sync = () => setNotifEnabled(isDeviceNotificationsEnabled());
+    window.addEventListener(NOTIF_PREF_EVENT, sync);
+    return () => window.removeEventListener(NOTIF_PREF_EVENT, sync);
+  }, []);
 
   const handleToggleDeviceNotifications = async () => {
     const perm = getDeviceNotificationPermission();
