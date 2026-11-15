@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { RecordItem } from '../types';
+import { ManagedFileItem, RecordItem } from '../types';
 import { formatKuwaitDate, getTodayKuwaitDateString } from './date';
 
 const DEVICE_NOTIFY_PREF_KEY = 'asystem_device_notifications_enabled';
@@ -93,6 +93,10 @@ export function filterExact30DayCivilIdRecords(records: RecordItem[]): RecordIte
   });
 }
 
+export function filterExact30DayFiles(files: ManagedFileItem[]): ManagedFileItem[] {
+  return files.filter((f) => computeKuwaitDaysLeft(f.expiry_date) === 30);
+}
+
 /**
  * Builds the exact same alert message as the email sent by daily-expiry-alerts
  */
@@ -105,15 +109,18 @@ export function buildExpiryAlertMessage(
     unique_number_expiry?: string | null;
     unique_number_days_left?: number | null;
   }>,
-  companyName = "A'system",
-  lang: 'ar' | 'en' = 'ar'
+  companyName = 'Al-Muhallab',
+  lang: 'ar' | 'en' = 'ar',
+  matchedFiles: ManagedFileItem[] = []
 ): DeviceNotificationPayload {
+  const normalizedCompany = (companyName || '').trim();
+  const legacyNames = ['notifyme', 'برنامج التنبيه', "a'system", 'a system'];
   const brand =
-    companyName && companyName !== 'notifyme' && companyName !== 'برنامج التنبيه'
-      ? companyName
-      : "A'system";
+    normalizedCompany && !legacyNames.includes(normalizedCompany.toLowerCase())
+      ? normalizedCompany
+      : 'Al-Muhallab';
 
-  if (matchedRecords.length === 0) {
+  if (matchedRecords.length === 0 && matchedFiles.length === 0) {
     return {
       title:
         lang === 'ar'
@@ -121,8 +128,8 @@ export function buildExpiryAlertMessage(
           : `🔔 Alert Test Notification — ${brand}`,
       body:
         lang === 'ar'
-          ? 'لا يوجد حالياً أي شخص متبقٍ على انتهاء رقمه المدني ٣٠ يوماً اليوم.'
-          : 'No records currently have 30 days left before Civil ID expiry.',
+          ? 'لا يوجد حالياً أي شخص أو ملف متبقٍ على انتهائه ٣٠ يوماً اليوم.'
+          : 'No records or files currently have 30 days left before expiry.',
       url: '/notifications',
       tag: `asystem-alert-${getTodayKuwaitDateString()}`,
       dir: lang === 'ar' ? 'rtl' : 'ltr',
@@ -130,44 +137,74 @@ export function buildExpiryAlertMessage(
     };
   }
 
-  const count = matchedRecords.length;
-  const title =
-    lang === 'ar'
-      ? `⚠️ تنبيه: ${count} شخص متبقٍ على انتهاء الرقم المدني ٣٠ يوماً - ${brand}`
-      : `⚠️ Alert: ${count} person(s) with 30 days left on Civil ID - ${brand}`;
+  const lines: string[] = [];
 
-  const summaryLines = matchedRecords.slice(0, 4).map((r) => {
-    const personName = r.full_name || r.name || '—';
-    const civilId = r.unique_number || '—';
-    const expiryRaw = r.unique_number_expiry_date || r.unique_number_expiry;
-    const expiry = formatKuwaitDate(expiryRaw);
-    const kuwaitDays = computeKuwaitDaysLeft(expiryRaw);
-    const days =
-      kuwaitDays !== null
-        ? kuwaitDays
-        : typeof r.unique_number_days_left === 'number'
-        ? r.unique_number_days_left
-        : 30;
-    return lang === 'ar'
-      ? `• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${days} يوم)`
-      : `• ${personName} (${civilId}) — Expires ${expiry} (${days} days left)`;
-  });
-
-  if (count > 4) {
-    summaryLines.push(
-      lang === 'ar' ? `و ${count - 4} أشخاص آخرين...` : `and ${count - 4} more...`
+  if (matchedFiles.length > 0) {
+    lines.push(
+      lang === 'ar'
+        ? `مستندات يجب تجديدها خلال ٣٠ يوماً (${matchedFiles.length}):`
+        : `Documents needing renewal in 30 days (${matchedFiles.length}):`
     );
+    matchedFiles.slice(0, 3).forEach((f) => {
+      const expiry = formatKuwaitDate(f.expiry_date);
+      const days = computeKuwaitDaysLeft(f.expiry_date) ?? 30;
+      const typeLabel = f.file_type ? ` (${f.file_type})` : '';
+      lines.push(
+        lang === 'ar'
+          ? `• يجب تجديد المستند "${f.file_name}"${typeLabel} — ينتهي ${expiry} (متبقٍ ${days} يوم)`
+          : `• Renew document "${f.file_name}"${typeLabel} — Expires ${expiry} (${days} days left)`
+      );
+    });
   }
 
-  const headerLine =
-    lang === 'ar'
-      ? `يوجد (${count}) ${count === 1 ? 'شخص متبقٍ' : 'أشخاص متبقٍ'} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:`
-      : `${count} person(s) have 30 days left before Civil ID expiry:`;
+  if (matchedRecords.length > 0) {
+    lines.push(
+      lang === 'ar'
+        ? `الرقم المدني ينتهي خلال ٣٠ يوماً (${matchedRecords.length}):`
+        : `Civil IDs expiring in 30 days (${matchedRecords.length}):`
+    );
+    matchedRecords.slice(0, 3).forEach((r) => {
+      const personName = r.full_name || r.name || '—';
+      const civilId = r.unique_number || '—';
+      const expiryRaw = r.unique_number_expiry_date || r.unique_number_expiry;
+      const expiry = formatKuwaitDate(expiryRaw);
+      const kuwaitDays = computeKuwaitDaysLeft(expiryRaw);
+      const days =
+        kuwaitDays !== null
+          ? kuwaitDays
+          : typeof r.unique_number_days_left === 'number'
+          ? r.unique_number_days_left
+          : 30;
+      lines.push(
+        lang === 'ar'
+          ? `• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${days} يوم)`
+          : `• ${personName} (${civilId}) — Expires ${expiry} (${days} days left)`
+      );
+    });
+  }
+
+  let title = '';
+  if (matchedFiles.length > 0 && matchedRecords.length === 0) {
+    title =
+      lang === 'ar'
+        ? `⚠️ تنبيه تجديد مستند: يجب تجديد "${matchedFiles[0].file_name}"${matchedFiles.length > 1 ? ` (+${matchedFiles.length - 1})` : ''} - ${brand}`
+        : `⚠️ Document Renewal Alert: Renew "${matchedFiles[0].file_name}" - ${brand}`;
+  } else if (matchedFiles.length > 0 && matchedRecords.length > 0) {
+    title =
+      lang === 'ar'
+        ? `⚠️ تنبيه: تجديد مستندات (${matchedFiles.length}) والرقم المدني (${matchedRecords.length}) - ${brand}`
+        : `⚠️ Alert: ${matchedFiles.length} document(s) & ${matchedRecords.length} Civil ID(s) due - ${brand}`;
+  } else {
+    title =
+      lang === 'ar'
+        ? `⚠️ تنبيه: ${matchedRecords.length} شخص متبقٍ على انتهاء الرقم المدني ٣٠ يوماً - ${brand}`
+        : `⚠️ Alert: ${matchedRecords.length} person(s) with 30 days left on Civil ID - ${brand}`;
+  }
 
   return {
     title,
-    body: `${headerLine}\n${summaryLines.join('\n')}`,
-    url: '/notifications',
+    body: lines.join('\n'),
+    url: matchedFiles.length > 0 && matchedRecords.length === 0 ? '/files' : '/notifications',
     tag: `asystem-alert-${getTodayKuwaitDateString()}`,
     dir: lang === 'ar' ? 'rtl' : 'ltr',
     lang,

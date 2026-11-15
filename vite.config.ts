@@ -21,8 +21,8 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: "A'system",
-          short_name: "A'system",
+          name: 'Al-Muhallab',
+          short_name: 'Al-Muhallab',
           description: 'نظام ذكي لمتابعة تواريخ انتهاء الرقم المدني وجوازات السفر والوثائق مع تنبيهات يومية.',
           theme_color: '#0B3B38',
           background_color: '#0B3B38',

@@ -11,6 +11,8 @@ import {
 } from './deviceNotifications';
 
 let inFlightPromise: Promise<AutoExpiryCheckResult | null> | null = null;
+let lastCheckAt = 0;
+const PASSIVE_CHECK_COOLDOWN_MS = 60 * 1000;
 
 export interface AutoExpiryCheckResult {
   success: boolean;
@@ -22,12 +24,13 @@ export interface AutoExpiryCheckResult {
 /**
  * Automatically invokes the daily-expiry-alerts Edge Function (without force_send).
  * The Edge Function is idempotent via notifications_log (record_id, kind, channel, target_expiry):
- * - If any Civil ID has before_date == today (30 days remaining) and wasn't logged as 'sent' yet,
+ * - If any Civil ID or file has before_date == today (30 days remaining) and wasn't logged as 'sent' yet,
  *   it immediately sends the email, saves to notifications_log, and fires a device notification.
  * - If nothing is due or everything due was already sent, it exits immediately without sending emails.
  */
 export async function triggerAutomaticExpiryCheck(options?: {
   lang?: 'ar' | 'en';
+  forceCheck?: boolean;
   onAlertTriggered?: (payload: DeviceNotificationPayload) => void;
 }): Promise<AutoExpiryCheckResult | null> {
   if (!isSupabaseConfigured) return null;
@@ -36,6 +39,12 @@ export async function triggerAutomaticExpiryCheck(options?: {
     return inFlightPromise;
   }
 
+  const now = Date.now();
+  if (!options?.forceCheck && now - lastCheckAt < PASSIVE_CHECK_COOLDOWN_MS) {
+    return null;
+  }
+
+  lastCheckAt = now;
   inFlightPromise = (async () => {
     try {
       const { data, error } = await supabase.functions.invoke('daily-expiry-alerts', {

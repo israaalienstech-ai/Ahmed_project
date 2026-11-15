@@ -16,7 +16,7 @@ const corsHeaders = {
 };
 
 const LOGO_URL =
-  "https://i.postimg.cc/fT1R1cxn/7ea06fe60f018b2b8b4721ae0ff1b90a-removebg-preview.png";
+  "https://i.postimg.cc/F15P457X/Whats-App-Image-2026-11-14-at-8-20-05-PM-removebg-preview.png";
 
 interface AlertRecord {
   id: string;
@@ -30,6 +30,20 @@ interface AlertRecord {
   passport_expiry_date?: string;
   passport_expiry?: string;
   uniqueExpiryYmd?: string;
+  beforeDateYmd?: string;
+  daysLeft?: number;
+}
+
+interface AlertFile {
+  id: string;
+  file_name: string;
+  file_type?: string | null;
+  storage_path: string;
+  issue_date: string;
+  expiry_date: string;
+  notes?: string | null;
+  notified_for_expiry?: string | null;
+  expiryYmd?: string;
   beforeDateYmd?: string;
   daysLeft?: number;
 }
@@ -134,10 +148,43 @@ function buildAlertEmailHtml(params: {
   appUrl: string;
   dateStr: string;
   matchedRecords: AlertRecord[];
+  matchedFiles?: AlertFile[];
   isTestFallback?: boolean;
 }): string {
-  const { companyName, appUrl, dateStr, matchedRecords } = params;
+  const { companyName, appUrl, dateStr, matchedRecords, matchedFiles = [] } = params;
   const safeCompany = escapeHtml(companyName);
+
+  const fileRowsHtml = matchedFiles
+    .map((f) => {
+      const fName = escapeHtml(f.file_name || "—");
+      const fType = escapeHtml(f.file_type || "—");
+      const issueFormatted = formatDateKuwait(f.issue_date);
+      const expFormatted = formatDateKuwait(f.expiryYmd || f.expiry_date);
+      const daysVal = typeof f.daysLeft === "number" ? f.daysLeft : 30;
+      const daysLabel =
+        daysVal < 0
+          ? `منتهي منذ ${Math.abs(daysVal)} يوم`
+          : daysVal === 0
+          ? "ينتهي اليوم"
+          : `متبقٍ ${daysVal} يوم`;
+
+      return `
+      <tr style="border-bottom: 1px solid #E2E8F0;">
+        <td style="padding: 14px 16px; font-weight: 700; font-size: 15px; color: #0F172A;">
+          يجب تجديد المستند: <span style="color: #0F766E;">«${fName}»</span>
+        </td>
+        <td style="padding: 14px 16px; color: #334155; font-weight: 600;">${fType}</td>
+        <td style="padding: 14px 16px; font-family: monospace; color: #475569;">${issueFormatted}</td>
+        <td style="padding: 14px 16px; font-family: monospace; color: #D97706; font-weight: 700;">${expFormatted}</td>
+        <td style="padding: 14px 16px;">
+          <span style="display: inline-block; background-color: #FEF3C7; color: #92400E; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 12px;">
+            ${daysLabel}
+          </span>
+        </td>
+      </tr>
+      `;
+    })
+    .join("");
 
   const personRowsHtml = matchedRecords
     .map((r) => {
@@ -167,13 +214,15 @@ function buildAlertEmailHtml(params: {
     })
     .join("");
 
+  const hasAny = matchedRecords.length > 0 || matchedFiles.length > 0;
+
   return `
   <!DOCTYPE html>
   <html lang="ar" dir="rtl">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تنبيه انتهاء الرقم المدني - ${safeCompany}</title>
+    <title>تنبيه انتهاء الصلاحية وتجديد الملفات - ${safeCompany}</title>
     <link href="https://fonts.googleapis.com/css2?family=Momo+Signature&display=swap" rel="stylesheet">
   </head>
   <body style="margin: 0; padding: 0; background-color: #F4F6F8; font-family: 'IBM Plex Sans Arabic', 'Nunito Sans', Tahoma, Arial, sans-serif; direction: rtl; text-align: right; color: #0F172A;">
@@ -191,9 +240,9 @@ function buildAlertEmailHtml(params: {
               <h1 style="margin: 0 0 8px 0; font-size: 22px; font-weight: 700; color: #FFFFFF; line-height: 1.4;">
                 <span dir="ltr" style="font-family: 'Momo Signature', 'Nunito Sans', Georgia, serif; font-size: 26px; font-weight: 400; letter-spacing: 0.5px;">${safeCompany}</span>
                 &nbsp;&mdash;&nbsp;
-                تنبيه انتهاء الرقم المدني
+                تنبيه انتهاء الصلاحية والتجديد
               </h1>
-              <p style="margin: 0; font-size: 13px; color: #A7F3D0; line-height: 1.5;">تنبيه بأسماء الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً (${dateStr})</p>
+              <p style="margin: 0; font-size: 13px; color: #A7F3D0; line-height: 1.5;">تنبيه قبل انتهاء الصلاحية بشهر / ٣٠ يوماً (${dateStr})</p>
             </td>
           </tr>
         </table>
@@ -201,10 +250,38 @@ function buildAlertEmailHtml(params: {
 
       <div style="padding: 28px;">
         ${
+          matchedFiles.length > 0
+            ? `
+          <div style="margin-bottom: ${matchedRecords.length > 0 ? "28px" : "8px"};">
+            <p style="margin: 0 0 14px 0; font-size: 15px; font-weight: 700; color: #0F172A;">
+              📁 تنبيه تجديد مستندات (${matchedFiles.length}): يجب تجديد المستندات التالية قبل انتهاء صلاحيتها بـ ٣٠ يوماً:
+            </p>
+            <div style="overflow-x: auto; border: 1px solid #E2E8F0; border-radius: 10px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: right;">
+                <thead>
+                  <tr style="background-color: #F8FAFC; color: #475569; font-weight: 700; border-bottom: 1px solid #E2E8F0;">
+                    <th style="padding: 12px 16px;">المستند المطلوب تجديده</th>
+                    <th style="padding: 12px 16px;">نوع الملف</th>
+                    <th style="padding: 12px 16px;">تاريخ الإصدار</th>
+                    <th style="padding: 12px 16px;">تاريخ الانتهاء</th>
+                    <th style="padding: 12px 16px;">المتبقي</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${fileRowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          `
+            : ""
+        }
+
+        ${
           matchedRecords.length > 0
             ? `
-          <p style="margin: 0 0 18px 0; font-size: 15px; font-weight: 600; color: #1E293B;">
-            يوجد (${matchedRecords.length}) ${matchedRecords.length === 1 ? "شخص متبقٍ" : "أشخاص متبقٍ"} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:
+          <p style="margin: 0 0 14px 0; font-size: 15px; font-weight: 600; color: #1E293B;">
+            👤 يوجد (${matchedRecords.length}) ${matchedRecords.length === 1 ? "شخص متبقٍ" : "أشخاص متبقٍ"} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:
           </p>
           <div style="overflow-x: auto; border: 1px solid #E2E8F0; border-radius: 10px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: right;">
@@ -222,11 +299,17 @@ function buildAlertEmailHtml(params: {
             </table>
           </div>
           `
-            : `
+            : ""
+        }
+
+        ${
+          !hasAny
+            ? `
           <div style="margin-bottom: 16px; padding: 18px; background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; color: #166534; font-size: 14px;">
-            ✅ لا يوجد حالياً أي شخص متبقٍ على انتهاء رقمه المدني ٣٠ يوماً اليوم (${dateStr}).
+            ✅ لا يوجد حالياً أي شخص أو ملف متبقٍ على انتهائه ٣٠ يوماً اليوم (${dateStr}).
           </div>
           `
+            : ""
         }
 
         <!-- Action Button -->
@@ -255,14 +338,18 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const gmailUser = Deno.env.get("GMAIL_USER");
-    const gmailAppPassword = Deno.env.get("GMAIL_APP_PASSWORD")?.replace(/\s+/g, "");
-    const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const alertEmailFrom = Deno.env.get("ALERT_EMAIL_FROM") || gmailUser || "onboarding@resend.dev";
-    const alertToEmail = Deno.env.get("ALERT_TO_EMAIL") || Deno.env.get("ADMIN_EMAILS");
-    const appUrl = Deno.env.get("APP_URL") || "http://localhost:3000";
+    const cleanEnv = (key: string) =>
+      Deno.env.get(key)?.trim().replace(/^['"]|['"]$/g, "") || undefined;
+
+    const supabaseUrl = cleanEnv("SUPABASE_URL");
+    const supabaseServiceKey = cleanEnv("SUPABASE_SERVICE_ROLE_KEY");
+    const mailProvider = cleanEnv("MAIL_PROVIDER")?.toLowerCase();
+    const gmailUser = cleanEnv("GMAIL_USER");
+    const gmailAppPassword = cleanEnv("GMAIL_APP_PASSWORD")?.replace(/\s+/g, "");
+    const resendApiKey = cleanEnv("RESEND_API_KEY");
+    const alertEmailFrom = cleanEnv("ALERT_EMAIL_FROM") || gmailUser || "onboarding@resend.dev";
+    const alertToEmail = cleanEnv("ALERT_TO_EMAIL") || cleanEnv("ADMIN_EMAILS");
+    const appUrl = cleanEnv("APP_URL") || "http://localhost:3000";
 
     if (!supabaseUrl || !supabaseServiceKey) {
       return new Response(
@@ -290,20 +377,21 @@ Deno.serve(async (req) => {
       typeof requestBody.test_email === "string" ? requestBody.test_email.trim() : "";
     const forceSend = Boolean(requestBody.force_send || customTestEmail);
 
-    // 1. Fetch company name from settings (default: A'system)
-    let companyName = "A'system";
+    // 1. Fetch company name from settings (default: Al-Muhallab)
+    let companyName = "Al-Muhallab";
     const { data: settingsData } = await supabaseAdmin
       .from("settings")
       .select("company_name")
       .limit(1)
       .maybeSingle();
 
+    const legacyNames = ["notifyme", "برنامج التنبيه", "a'system", "a system"];
+    const dbCompanyName = settingsData?.company_name?.trim();
     if (
-      settingsData?.company_name &&
-      settingsData.company_name !== "notifyme" &&
-      settingsData.company_name !== "برنامج التنبيه"
+      dbCompanyName &&
+      !legacyNames.includes(dbCompanyName.toLowerCase())
     ) {
-      companyName = settingsData.company_name;
+      companyName = dbCompanyName;
     }
 
     // 2. Fetch all records and calculate exact 30-day before-date in Asia/Kuwait timezone
@@ -343,19 +431,55 @@ Deno.serve(async (req) => {
       (existingLogs || []).map((row: any) => `${row.record_id}|${String(row.target_expiry).slice(0, 10)}`)
     );
 
-    // Core rule: before_date == expiry_date - 30 days == todayKuwaitYmd
+    // Core rule for Civil IDs: before_date == expiry_date - 30 days == todayKuwaitYmd
     const exact30DayDueRecords = allRecords.filter((r) => {
       if (!r.uniqueExpiryYmd || !r.beforeDateYmd) return false;
       if (r.beforeDateYmd !== todayKuwaitYmd) return false;
       return !alreadySentSet.has(`${r.id}|${r.uniqueExpiryYmd}`);
     });
 
-    // If not in dry-run or force/test mode, and no record has before_date == todayKuwaitYmd, exit cleanly
-    if (exact30DayDueRecords.length === 0 && !forceSend && !isDryRun) {
+    // 2b. Fetch managed_files (if table exists) and check 30-day renewal alerts
+    let allFiles: AlertFile[] = [];
+    try {
+      const { data: filesData, error: filesError } = await supabaseAdmin
+        .from("managed_files")
+        .select("*");
+
+      if (!filesError && Array.isArray(filesData)) {
+        allFiles = filesData.map((f: any) => {
+          const expiryYmd = extractYmd(f.expiry_date);
+          const beforeDateYmd = expiryYmd ? addDaysToYmd(expiryYmd, -30) : null;
+          const daysLeft = expiryYmd ? diffDaysYmd(expiryYmd, todayKuwaitYmd) : undefined;
+          return {
+            ...f,
+            expiryYmd: expiryYmd || undefined,
+            beforeDateYmd: beforeDateYmd || undefined,
+            daysLeft,
+          };
+        });
+      }
+    } catch (filesQueryErr) {
+      console.warn("managed_files check skipped:", filesQueryErr);
+    }
+
+    const exact30DayDueFiles = allFiles.filter((f) => {
+      if (!f.expiryYmd || !f.beforeDateYmd) return false;
+      if (f.beforeDateYmd !== todayKuwaitYmd) return false;
+      const alreadyNotifiedExpiry = extractYmd(f.notified_for_expiry);
+      return alreadyNotifiedExpiry !== f.expiryYmd;
+    });
+
+    // If not in dry-run or force/test mode, and neither records nor files are due today, exit cleanly
+    if (
+      exact30DayDueRecords.length === 0 &&
+      exact30DayDueFiles.length === 0 &&
+      !forceSend &&
+      !isDryRun
+    ) {
       return new Response(
         JSON.stringify({
           success: true,
-          message: "لا يوجد أشخاص متبقٍ على انتهاء رقمهم المميز ٣٠ يوماً اليوم.",
+          message: "لا يوجد أشخاص أو ملفات متبقٍ على انتهائها ٣٠ يوماً اليوم.",
           today_kuwait: todayKuwaitYmd,
           count: 0,
         }),
@@ -363,13 +487,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // For dry_run or test mode when exact30DayDueRecords is empty, preview upcoming <=30 days if available
+    // For dry_run or test mode when exact 30-day items are empty, preview upcoming <=30 days if available
     let recordsForEmail = exact30DayDueRecords;
+    let filesForEmail = exact30DayDueFiles;
     let isTestFallback = false;
-    if (recordsForEmail.length === 0 && (forceSend || isDryRun)) {
+    if (recordsForEmail.length === 0 && filesForEmail.length === 0 && (forceSend || isDryRun)) {
       isTestFallback = true;
       recordsForEmail = allRecords.filter(
         (r) => typeof r.daysLeft === "number" && r.daysLeft >= 0 && r.daysLeft <= 30
+      );
+      filesForEmail = allFiles.filter(
+        (f) => typeof f.daysLeft === "number" && f.daysLeft >= 0 && f.daysLeft <= 30
       );
     }
 
@@ -446,29 +574,47 @@ Deno.serve(async (req) => {
       appUrl,
       dateStr: todayDisplayStr,
       matchedRecords: recordsForEmail,
+      matchedFiles: filesForEmail,
       isTestFallback,
     });
 
-    const emailSubject =
-      exact30DayDueRecords.length > 0
-        ? `⚠️ تنبيه: ${exact30DayDueRecords.length} شخص متبقٍ على انتهاء الرقم المدني ٣٠ يوماً - ${companyName}`
-        : `🔔 رسالة اختبار التنبيهات - ${companyName}`;
+    let emailSubject = `🔔 رسالة اختبار التنبيهات - ${companyName}`;
+    if (exact30DayDueFiles.length > 0 && exact30DayDueRecords.length > 0) {
+      emailSubject = `⚠️ تنبيه: تجديد مستندات (${exact30DayDueFiles.length}) والرقم المدني (${exact30DayDueRecords.length}) - ${companyName}`;
+    } else if (exact30DayDueFiles.length > 0) {
+      emailSubject = `⚠️ تنبيه تجديد مستند: يجب تجديد "${exact30DayDueFiles[0].file_name}"${exact30DayDueFiles.length > 1 ? ` (+${exact30DayDueFiles.length - 1})` : ""} قبل الانتهاء بـ ٣٠ يوماً - ${companyName}`;
+    } else if (exact30DayDueRecords.length > 0) {
+      emailSubject = `⚠️ تنبيه: ${exact30DayDueRecords.length} شخص متبقٍ على انتهاء الرقم المدني ٣٠ يوماً - ${companyName}`;
+    }
 
-    const notificationSummaryLines = recordsForEmail.slice(0, 4).map((r) => {
-      const personName = r.full_name || r.name || "—";
-      const civilId = r.unique_number || "—";
-      const expiry = formatDateKuwait(r.uniqueExpiryYmd || r.unique_number_expiry_date || r.unique_number_expiry);
-      const daysVal = typeof r.daysLeft === "number" ? r.daysLeft : 30;
-      return `• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${daysVal} يوم)`;
-    });
+    const notificationLines: string[] = [];
+    if (filesForEmail.length > 0) {
+      notificationLines.push(`مستندات يجب تجديدها (${filesForEmail.length}):`);
+      filesForEmail.slice(0, 3).forEach((f) => {
+        const exp = formatDateKuwait(f.expiryYmd || f.expiry_date);
+        const daysVal = typeof f.daysLeft === "number" ? f.daysLeft : 30;
+        const typeLabel = f.file_type ? ` (${f.file_type})` : "";
+        notificationLines.push(`• يجب تجديد المستند "${f.file_name}"${typeLabel} — ينتهي ${exp} (متبقٍ ${daysVal} يوم)`);
+      });
+    }
+    if (recordsForEmail.length > 0) {
+      notificationLines.push(`الرقم المدني (${recordsForEmail.length}):`);
+      recordsForEmail.slice(0, 3).forEach((r) => {
+        const personName = r.full_name || r.name || "—";
+        const civilId = r.unique_number || "—";
+        const expiry = formatDateKuwait(r.uniqueExpiryYmd || r.unique_number_expiry_date || r.unique_number_expiry);
+        const daysVal = typeof r.daysLeft === "number" ? r.daysLeft : 30;
+        notificationLines.push(`• ${personName} (${civilId}) — ينتهي ${expiry} (متبقٍ ${daysVal} يوم)`);
+      });
+    }
 
     const notificationPayload = {
       title: emailSubject,
       body:
-        recordsForEmail.length > 0
-          ? `يوجد (${recordsForEmail.length}) ${recordsForEmail.length === 1 ? "شخص متبقٍ" : "أشخاص متبقٍ"} على انتهاء صلاحية الرقم المدني له ٣٠ يوماً:\n${notificationSummaryLines.join("\n")}`
-          : `لا يوجد حالياً أي شخص متبقٍ على انتهاء رقمه المدني ٣٠ يوماً اليوم (${todayDisplayStr}).`,
-      url: "/notifications",
+        notificationLines.length > 0
+          ? notificationLines.join("\n")
+          : `لا يوجد حالياً أي شخص أو ملف متبقٍ على انتهائه ٣٠ يوماً اليوم (${todayDisplayStr}).`,
+      url: exact30DayDueFiles.length > 0 && exact30DayDueRecords.length === 0 ? "/files" : "/notifications",
     };
 
     // Dry run preview
@@ -479,7 +625,7 @@ Deno.serve(async (req) => {
           dry_run: true,
           message: "معاينة التقرير جاهزة بنجاح.",
           recipients: recipientEmails,
-          count: exact30DayDueRecords.length,
+          count: exact30DayDueRecords.length + exact30DayDueFiles.length,
           html_preview: emailHtml,
           notification_payload: notificationPayload,
         }),
@@ -492,31 +638,8 @@ Deno.serve(async (req) => {
     let sendStatus: "sent" | "failed" = "sent";
     let sendErrorMessage: string | null = null;
 
-    if (gmailUser && gmailAppPassword) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true,
-          auth: {
-            user: gmailUser,
-            pass: gmailAppPassword,
-          },
-        });
-
-        emailSendResult = await transporter.sendMail({
-          from: `"${companyName}" <${gmailUser}>`,
-          to: recipientEmails.join(", "),
-          subject: emailSubject,
-          html: emailHtml,
-        });
-        sendStatus = "sent";
-      } catch (gmailErr: any) {
-        console.error("Gmail SMTP error:", gmailErr);
-        sendStatus = "failed";
-        sendErrorMessage = `خطأ أثناء الإرسال عبر Gmail: ${gmailErr.message}`;
-      }
-    } else if (resendApiKey) {
+    const sendViaResend = async (): Promise<boolean> => {
+      if (!resendApiKey) return false;
       try {
         const resendRes = await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -537,11 +660,63 @@ Deno.serve(async (req) => {
         if (!resendRes.ok) {
           sendStatus = "failed";
           sendErrorMessage = resendJson?.message || "فشل إرسال البريد عبر Resend API";
+          return false;
         }
+        sendStatus = "sent";
+        sendErrorMessage = null;
+        return true;
       } catch (err: any) {
         sendStatus = "failed";
         sendErrorMessage = err.message || "خطأ أثناء الاتصال بمزود البريد";
+        return false;
       }
+    };
+
+    const preferResend = mailProvider === "resend";
+
+    if (preferResend && resendApiKey) {
+      await sendViaResend();
+    } else if (gmailUser && gmailAppPassword) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true,
+          auth: {
+            user: gmailUser,
+            pass: gmailAppPassword,
+          },
+        });
+
+        emailSendResult = await transporter.sendMail({
+          from: `"${companyName}" <${gmailUser}>`,
+          to: recipientEmails.join(", "),
+          subject: emailSubject,
+          html: emailHtml,
+        });
+        sendStatus = "sent";
+      } catch (gmailErr: any) {
+        console.error("Gmail SMTP error:", gmailErr);
+        const rawMsg = String(gmailErr?.message || "");
+        const isBadCreds = rawMsg.includes("535") || rawMsg.includes("BadCredentials");
+        const gmailErrText = isBadCreds
+          ? `فشل تسجيل الدخول في Gmail (${gmailUser}): تأكد أن GMAIL_APP_PASSWORD في Supabase Secrets هو "كلمة مرور تطبيقات" من 16 حرفاً (App Password) وليس كلمة مرور حساب جوجل العادية، وأنه صادر لنفس الإيميل الموجود في GMAIL_USER.`
+          : `خطأ أثناء الإرسال عبر Gmail: ${rawMsg}`;
+
+        // Automatic fallback to Resend if configured
+        if (resendApiKey) {
+          const ok = await sendViaResend();
+          if (!ok) {
+            sendStatus = "failed";
+            sendErrorMessage = `${gmailErrText} | ${sendErrorMessage || ""}`;
+          }
+        } else {
+          sendStatus = "failed";
+          sendErrorMessage = gmailErrText;
+        }
+      }
+    } else if (resendApiKey) {
+      await sendViaResend();
     } else {
       sendStatus = "failed";
       sendErrorMessage =
@@ -579,20 +754,39 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 5b. Mark notified_for_expiry on managed_files when email was sent successfully
+    let filesNotifiedCount = 0;
+    if (sendStatus === "sent" && exact30DayDueFiles.length > 0) {
+      for (const fileItem of exact30DayDueFiles) {
+        const { error: fileUpdErr } = await supabaseAdmin
+          .from("managed_files")
+          .update({ notified_for_expiry: fileItem.expiryYmd! })
+          .eq("id", fileItem.id);
+        if (!fileUpdErr) {
+          filesNotifiedCount++;
+        }
+      }
+    }
+
+    const totalMatchedCount = exact30DayDueRecords.length + exact30DayDueFiles.length;
+
     return new Response(
       JSON.stringify({
         success: sendStatus === "sent",
         status: sendStatus,
         today_kuwait: todayKuwaitYmd,
-        matched_count: exact30DayDueRecords.length,
+        matched_count: totalMatchedCount,
+        matched_records_count: exact30DayDueRecords.length,
+        matched_files_count: exact30DayDueFiles.length,
         logged_count: loggedCount,
+        files_notified_count: filesNotifiedCount,
         log_error: logError,
         message:
           sendStatus === "failed"
             ? `فشل إرسال البريد: ${sendErrorMessage}`
-            : exact30DayDueRecords.length > 0
-            ? `تم إرسال التنبيه وتسجيل ${loggedCount} سجل متبقٍ على انتهائه ٣٠ يوماً بنجاح.`
-            : `تم إرسال رسالة الاختبار بنجاح إلى ${recipientEmails.length} من المسؤولين (لا توجد سجلات متبقٍ لها ٣٠ يوماً اليوم).`,
+            : totalMatchedCount > 0
+            ? `تم إرسال التنبيه بنجاح (${exact30DayDueRecords.length} سجل رقم مدني، ${exact30DayDueFiles.length} ملف).`
+            : `تم إرسال رسالة الاختبار بنجاح إلى ${recipientEmails.length} من المسؤولين (لا توجد سجلات أو ملفات متبقٍ لها ٣٠ يوماً اليوم).`,
         recipients: recipientEmails,
         notification_payload: notificationPayload,
         details: emailSendResult,

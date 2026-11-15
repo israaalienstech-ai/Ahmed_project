@@ -31,7 +31,9 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   const [rotation, setRotation] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(60);
 
-  const isPdf = storagePath ? storagePath.toLowerCase().endsWith('.pdf') : false;
+  const lowerPath = storagePath ? storagePath.toLowerCase() : '';
+  const isPdf = lowerPath.endsWith('.pdf');
+  const isImage = /\.(jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(lowerPath);
 
   const fetchSignedUrl = useCallback(async () => {
     if (!storagePath) return;
@@ -144,7 +146,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
         </div>
 
         {/* Zoom & Rotation Controls */}
-        {!isPdf && signedUrl && !error && (
+        {isImage && signedUrl && !error && (
           <div className="flex items-center justify-center gap-4 py-2 bg-slate-100 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-xs">
             <button
               type="button"
@@ -218,7 +220,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                   title={title}
                   className="w-full h-[65vh] border-0 rounded-lg bg-white shadow-inner"
                 />
-              ) : (
+              ) : isImage ? (
                 <div className="flex items-center justify-center w-full h-full min-h-[350px] overflow-auto">
                   <img
                     src={signedUrl}
@@ -229,6 +231,32 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
                     }}
                     className="max-h-[65vh] max-w-full object-contain rounded shadow-md select-none"
                   />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-4 p-8 text-center max-w-md bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <div className="p-4 bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 rounded-2xl">
+                    <FileText className="w-10 h-10" />
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-slate-900 dark:text-white mb-1">
+                      {title}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {isAr
+                        ? 'هذا النوع من الملفات غير قابل للعرض المباشر داخل المتصفح. يمكنك تحميله الآن.'
+                        : 'This file type cannot be previewed inline. You can download it below.'}
+                    </p>
+                  </div>
+                  <a
+                    href={signedUrl}
+                    download
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-xl shadow-xs transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>{isAr ? 'تحميل الملف' : 'Download File'}</span>
+                  </a>
                 </div>
               )}
             </>

@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   isAdmin: false,
-  companyName: "A'system",
+  companyName: 'Al-Muhallab',
   login: async () => ({ success: false }),
   logout: async () => {},
   refreshProfileAndSettings: async () => {},
@@ -35,7 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [companyName, setCompanyName] = useState("A'system");
+  const [companyName, setCompanyName] = useState('Al-Muhallab');
 
   const fetchUserData = useCallback(async (currentUser: User) => {
     try {
@@ -60,16 +60,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .limit(1)
         .maybeSingle();
 
+      const legacyNames = ['notifyme', 'برنامج التنبيه', "a'system", 'a system'];
+      const dbCompanyName = settingsData?.company_name?.trim();
       if (
         !settingsErr &&
-        settingsData &&
-        settingsData.company_name &&
-        settingsData.company_name !== 'notifyme' &&
-        settingsData.company_name !== 'برنامج التنبيه'
+        dbCompanyName &&
+        !legacyNames.includes(dbCompanyName.toLowerCase())
       ) {
-        setCompanyName(settingsData.company_name);
+        setCompanyName(dbCompanyName);
       } else {
-        setCompanyName("A'system");
+        setCompanyName('Al-Muhallab');
       }
     } catch (err) {
       console.warn('Failed to fetch profile or settings:', err);
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchUserData(newSession.user);
       } else {
         setIsAdmin(false);
-        setCompanyName("A'system");
+        setCompanyName('Al-Muhallab');
       }
       setLoading(false);
     });
@@ -146,7 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setSession(null);
       setIsAdmin(false);
-      setCompanyName("A'system");
+      setCompanyName('Al-Muhallab');
     }
   };
 

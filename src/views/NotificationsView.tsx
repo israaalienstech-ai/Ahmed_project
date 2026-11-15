@@ -25,12 +25,14 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
-import { NotificationLogItem, RecordItem } from '../types';
+import { ManagedFileItem, NotificationLogItem, RecordItem } from '../types';
 import { formatKuwaitDate } from '../utils/date';
 import { translateErrorMessage } from '../utils/errors';
 import {
   buildExpiryAlertMessage,
+  computeKuwaitDaysLeft,
   filterExact30DayCivilIdRecords,
+  filterExact30DayFiles,
   getDeviceNotificationPermission,
   isDeviceNotificationsEnabled,
   isRunningInIframe,
@@ -218,8 +220,27 @@ export const NotificationsView: React.FC = () => {
           r.unique_number_days_left <= 30
       );
 
+      let matchedFiles: ManagedFileItem[] = [];
+      try {
+        const { data: filesData } = await supabase.from('managed_files').select('*');
+        const allFiles = (filesData || []) as ManagedFileItem[];
+        const exactFiles = filterExact30DayFiles(allFiles);
+        const upcomingFiles = allFiles.filter((f) => {
+          const d = computeKuwaitDaysLeft(f.expiry_date);
+          return d !== null && d >= 0 && d <= 30;
+        });
+        matchedFiles = exactFiles.length > 0 ? exactFiles : upcomingFiles;
+      } catch {
+        // managed_files table may not be created yet
+      }
+
       const targetRecords = exact30.length > 0 ? exact30 : fallbackUpcoming;
-      const payload = buildExpiryAlertMessage(targetRecords, companyName || "A'system", lang);
+      const payload = buildExpiryAlertMessage(
+        targetRecords,
+        companyName || 'Al-Muhallab',
+        lang,
+        matchedFiles
+      );
       await showDeviceNotification(payload);
     } finally {
       setSendingDeviceTest(false);
@@ -291,7 +312,7 @@ export const NotificationsView: React.FC = () => {
         const fallbackHtml = `
           <div style="font-family: 'IBM Plex Sans Arabic', 'Nunito Sans', Tahoma, sans-serif; direction: ${isAr ? 'rtl' : 'ltr'}; padding: 24px; color: #0F172A;">
             <div style="background: #0B3B38; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
-              <h2 style="margin: 0; font-size: 20px;">${companyName || "A'system"}</h2>
+              <h2 style="margin: 0; font-size: 20px;">${companyName || 'Al-Muhallab'}</h2>
               <p style="margin: 6px 0 0; font-size: 13px; color: #A7F3D0;">${
                 isAr
                   ? 'الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً'

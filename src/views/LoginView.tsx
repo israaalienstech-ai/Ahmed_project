@@ -116,14 +116,14 @@ VITE_SUPABASE_ANON_KEY="your-anon-key"`}
         <div className="flex flex-col items-center text-center mb-8">
           <img
             src="/logo.png"
-            alt="A'system"
+            alt="Al-Muhallab"
             className="w-20 h-20 object-contain mb-4"
           />
           <h1
             dir="ltr"
             className="font-brand text-4xl text-slate-900 dark:text-white mb-2 tracking-wide"
           >
-            A'system
+            Al-Muhallab
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {isAr

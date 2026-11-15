@@ -16,6 +16,7 @@ import {
   Languages,
   Bell,
   BellRing,
+  FolderOpen,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
@@ -30,8 +31,8 @@ import {
 } from '../utils/deviceNotifications';
 
 interface SidebarProps {
-  currentTab: 'records' | 'notifications';
-  onSelectTab: (tab: 'records' | 'notifications') => void;
+  currentTab: 'records' | 'files' | 'notifications';
+  onSelectTab: (tab: 'records' | 'files' | 'notifications') => void;
   onAddNewRecord: () => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
@@ -65,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setNotifEnabled(granted);
       if (granted) {
         await showDeviceNotification({
-          title: isAr ? "تم تفعيل إشعارات A'system" : "A'system Notifications Enabled",
+          title: isAr ? 'تم تفعيل إشعارات Al-Muhallab' : 'Al-Muhallab Notifications Enabled',
           body: isAr
             ? 'ستصلك تنبيهات انتهاء الرقم المدني مباشرة على هذا الجهاز.'
             : 'You will receive Civil ID expiry alerts directly on this device.',
@@ -105,12 +106,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center gap-3">
             <img
               src="/logo.png"
-              alt={companyName || "A'system"}
+              alt={companyName || 'Al-Muhallab'}
               className="w-10 h-10 object-contain shrink-0"
             />
             <div className="overflow-hidden">
               <h1 dir="ltr" className="font-brand text-2xl text-white tracking-wide truncate leading-tight">
-                {companyName || "A'system"}
+                {companyName || 'Al-Muhallab'}
               </h1>
               <span className="text-[11px] text-teal-200/70 block">
                 {isAr ? 'نظام تنبيهات الصلاحية' : 'Document Expiry Alerts'}
@@ -150,6 +151,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Users className="w-5 h-5 text-teal-300 shrink-0" />
             <span>{isAr ? 'السجلات والتنبيهات' : 'Records & Alerts'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectTab('files');
+              if (onCloseMobile) onCloseMobile();
+            }}
+            className={`w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+              currentTab === 'files'
+                ? 'bg-white/15 text-white font-bold shadow-xs'
+                : 'text-white/80 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <FolderOpen className="w-5 h-5 text-teal-300 shrink-0" />
+            <span>{isAr ? 'الملفات والوثائق' : 'Files & Documents'}</span>
           </button>
 
           <button

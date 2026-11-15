@@ -64,3 +64,16 @@ export interface NotificationLogItem {
     passport_number?: string | null;
   } | null;
 }
+
+export interface ManagedFileItem {
+  id: string;
+  file_name: string;
+  file_type?: string | null;
+  storage_path: string;
+  issue_date: string;
+  expiry_date: string;
+  notes?: string | null;
+  notified_for_expiry?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}

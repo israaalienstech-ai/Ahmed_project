@@ -1,7 +1,7 @@
-// Custom Service Worker handler for A'system Push & OS Notifications
+// Custom Service Worker handler for Al-Muhallab Push & OS Notifications
 self.addEventListener('push', (event) => {
   let payload = {
-    title: "A'system — تنبيه انتهاء الرقم المدني",
+    title: 'Al-Muhallab — تنبيه انتهاء الصلاحية',
     body: 'يرجى مراجعة سجل التنبيهات في النظام.',
     url: '/notifications',
     tag: 'asystem-expiry-alert',
@@ -36,7 +36,7 @@ self.addEventListener('message', (event) => {
     const payload = event.data.payload || {};
     event.waitUntil(
       self.registration.showNotification(
-        payload.title || "A'system — تنبيه انتهاء الرقم المدني",
+        payload.title || 'Al-Muhallab — تنبيه انتهاء الصلاحية',
         {
           body: payload.body || '',
           icon: '/pwa-192x192.png',

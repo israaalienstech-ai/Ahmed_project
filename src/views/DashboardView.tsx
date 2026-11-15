@@ -606,7 +606,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
                   return (
                     <tr
                       key={item.id}
-                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors group"
+                      onClick={() => onEdit(item.id)}
+                      title={isAr ? 'اضغط لفتح وتعديل بيانات السجل' : 'Click to open record details'}
+                      className="hover:bg-teal-50/40 dark:hover:bg-slate-800/70 transition-colors group cursor-pointer"
                     >
                       <td className="px-5 py-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                         {fullName}
@@ -647,11 +649,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
                         </div>
                       </td>
 
-                      <td className="px-5 py-4 whitespace-nowrap text-center">
+                      <td
+                        className="px-5 py-4 whitespace-nowrap text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => onEdit(item.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEdit(item.id);
+                            }}
                             title={isAr ? 'تعديل السجل' : 'Edit record'}
                             className="p-2 text-slate-600 dark:text-slate-400 hover:text-[#0F766E] dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/60 rounded-lg transition-colors cursor-pointer"
                           >
@@ -661,7 +669,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
                           {isAdmin && (
                             <button
                               type="button"
-                              onClick={() => setDeleteTarget(item)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget(item);
+                              }}
                               title={isAr ? 'حذف السجل' : 'Delete record'}
                               className="p-2 text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/60 rounded-lg transition-colors cursor-pointer"
                             >

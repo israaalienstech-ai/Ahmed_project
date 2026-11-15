@@ -28,6 +28,7 @@ import { DocumentPreviewModal } from '../components/DocumentPreviewModal';
 import { usePreferences } from '../context/PreferencesContext';
 import { triggerAutomaticExpiryCheck } from '../utils/autoAlertTrigger';
 import { computeKuwaitDaysLeft } from '../utils/deviceNotifications';
+import { compressImageIfNeeded } from '../utils/imageCompress';
 
 interface RecordFormViewProps {
   recordId?: string | null;
@@ -141,11 +142,16 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
       setLoadingRecord(true);
       setErrorMessage(null);
       try {
-        const { data: recordData, error: recordErr } = await supabase
-          .from('records')
-          .select('*')
-          .eq('id', recordId)
-          .single();
+        const [
+          { data: recordData, error: recordErr },
+          { data: docsData, error: docsErr },
+        ] = await Promise.all([
+          supabase.from('records').select('*').eq('id', recordId).single(),
+          supabase
+            .from('documents')
+            .select('id, record_id, doc_type, storage_path, uploaded_at')
+            .eq('record_id', recordId),
+        ]);
 
         if (recordErr) throw recordErr;
 
@@ -167,11 +173,6 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
           );
           setNotes(recordData.notes || '');
         }
-
-        const { data: docsData, error: docsErr } = await supabase
-          .from('documents')
-          .select('id, record_id, doc_type, storage_path, uploaded_at')
-          .eq('record_id', recordId);
 
         if (!docsErr && docsData) {
           const map: Record<DocType, DocumentItem | null> = {
@@ -195,7 +196,8 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
     }
 
     loadData();
-  }, [recordId, lang]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordId]);
 
   const filteredNationalities = useMemo(() => {
     if (!nationalityQuery.trim()) return ARABIC_NATIONALITIES;
@@ -289,6 +291,7 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
     setSaving(true);
     try {
       const targetRecordId = recordId || crypto.randomUUID();
+      const nowIso = new Date().toISOString();
 
       const recordPayload = {
         id: targetRecordId,
@@ -301,37 +304,32 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
         passport_issue_date: passportIssueDate,
         passport_expiry_date: passportExpiryDate,
         notes: notes.trim() || null,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       };
 
-      let saveRecordError;
-      if (isEditing) {
-        const { error } = await supabase
-          .from('records')
-          .update(recordPayload)
-          .eq('id', targetRecordId);
-        saveRecordError = error;
-      } else {
-        const { error } = await supabase.from('records').insert({
-          ...recordPayload,
-          created_at: new Date().toISOString(),
-        });
-        saveRecordError = error;
-      }
+      const pendingEntries = (Object.keys(pendingFiles) as DocType[])
+        .map((docType) => ({ docType, file: pendingFiles[docType] }))
+        .filter((entry): entry is { docType: DocType; file: File } => Boolean(entry.file));
 
-      if (saveRecordError) {
-        throw saveRecordError;
-      }
+      // 1. Compress any large camera photos in parallel before upload
+      const preparedUploads = await Promise.all(
+        pendingEntries.map(async ({ docType, file }) => {
+          const optimizedFile = await compressImageIfNeeded(file);
+          const fileExt = optimizedFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+          const storagePath = `records/${targetRecordId}/${docType}.${fileExt}`;
+          return { docType, file: optimizedFile, storagePath };
+        })
+      );
 
-      const docTypeKeys = Object.keys(pendingFiles) as DocType[];
+      // 2. Save the DB record AND upload all storage attachments simultaneously
+      const saveRecordPromise = isEditing
+        ? supabase.from('records').update(recordPayload).eq('id', targetRecordId)
+        : supabase.from('records').insert({
+            ...recordPayload,
+            created_at: nowIso,
+          });
 
-      for (const docType of docTypeKeys) {
-        const file = pendingFiles[docType];
-        if (!file) continue;
-
-        const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-        const storagePath = `records/${targetRecordId}/${docType}.${fileExt}`;
-
+      const uploadPromises = preparedUploads.map(async ({ docType, file, storagePath }) => {
         const { error: uploadErr } = await supabase.storage
           .from('documents')
           .upload(storagePath, file, {
@@ -340,40 +338,45 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
           });
 
         if (uploadErr) {
-          console.error(`Failed to upload ${docType}:`, uploadErr);
           throw new Error(
             isAr
               ? `فشل رفع وثيقة ${docType}: ${uploadErr.message}`
               : `Failed to upload ${docType}: ${uploadErr.message}`
           );
         }
+        return {
+          record_id: targetRecordId,
+          doc_type: docType,
+          storage_path: storagePath,
+          uploaded_at: nowIso,
+        };
+      });
 
+      const [recordResult, uploadedDocRows] = await Promise.all([
+        saveRecordPromise,
+        Promise.all(uploadPromises),
+      ]);
+
+      if (recordResult.error) {
+        throw recordResult.error;
+      }
+
+      // 3. Register all uploaded documents in one batched DB upsert
+      if (uploadedDocRows.length > 0) {
         const { error: docDbErr } = await supabase
           .from('documents')
-          .upsert(
-            {
-              record_id: targetRecordId,
-              doc_type: docType,
-              storage_path: storagePath,
-              uploaded_at: new Date().toISOString(),
-            },
-            { onConflict: 'record_id,doc_type' }
-          );
+          .upsert(uploadedDocRows, { onConflict: 'record_id,doc_type' });
 
         if (docDbErr) {
-          console.error(`Failed to register document in DB:`, docDbErr);
+          console.error('Failed to register documents in DB:', docDbErr);
           throw docDbErr;
         }
       }
 
-      let autoAlertMsg = '';
-      if (computeKuwaitDaysLeft(civilIdExpiry) === 30) {
-        const alertRes = await triggerAutomaticExpiryCheck({ lang });
-        if (alertRes && alertRes.matchedCount > 0) {
-          autoAlertMsg = isAr
-            ? ' وتم إرسال البريد الإلكتروني والإشعار تلقائياً.'
-            : ' Automatic email and notification sent.';
-        }
+      // 4. Fire 30-day automatic email/notification check in background (never block save UI)
+      const is30DaysLeft = computeKuwaitDaysLeft(civilIdExpiry) === 30;
+      if (is30DaysLeft) {
+        void triggerAutomaticExpiryCheck({ lang, forceCheck: true });
       }
 
       setSuccessToast(
@@ -383,11 +386,16 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
             : 'Record updated successfully!'
           : isAr
           ? 'تم إنشاء السجل والوثائق بنجاح!'
-          : 'Record and documents saved successfully!') + autoAlertMsg
+          : 'Record and documents saved successfully!') +
+          (is30DaysLeft
+            ? isAr
+              ? ' (سيتم إرسال التنبيه التلقائي في الخلفية)'
+              : ' (Automatic alert triggered in background)'
+            : '')
       );
       setTimeout(() => {
         onSaved();
-      }, 1000);
+      }, 250);
     } catch (err: any) {
       setErrorMessage(translateErrorMessage(err, lang));
     } finally {

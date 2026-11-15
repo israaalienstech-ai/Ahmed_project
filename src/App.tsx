@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { PreferencesProvider, usePreferences } from './context/PreferencesContext';
 import { Sidebar } from './components/Sidebar';
@@ -11,17 +11,18 @@ import { LoginView } from './views/LoginView';
 import { DashboardView } from './views/DashboardView';
 import { RecordFormView } from './views/RecordFormView';
 import { NotificationsView } from './views/NotificationsView';
-import { Menu, Sun, Moon, Languages, BellRing, AlertTriangle, X } from 'lucide-react';
+import { FilesView } from './views/FilesView';
+import { Menu, Sun, Moon, Languages, BellRing, X } from 'lucide-react';
 import { registerSW } from 'virtual:pwa-register';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { RecordItem } from './types';
+import { ManagedFileItem, RecordItem } from './types';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { triggerAutomaticExpiryCheck } from './utils/autoAlertTrigger';
 import {
   buildExpiryAlertMessage,
-  DeviceNotificationPayload,
   filterExact30DayCivilIdRecords,
+  filterExact30DayFiles,
   getDeviceNotificationPermission,
   hasNotifiedTodayForKey,
   isDeviceNotificationsEnabled,
@@ -35,6 +36,7 @@ import {
 type AppRoute =
   | { path: 'login' }
   | { path: 'records' }
+  | { path: 'files' }
   | { path: 'notifications' }
   | { path: 'record_new' }
   | { path: 'record_edit'; id: string };
@@ -42,6 +44,7 @@ type AppRoute =
 function parseCurrentRoute(): AppRoute {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   if (pathname === '/login') return { path: 'login' };
+  if (pathname === '/files') return { path: 'files' };
   if (pathname === '/records/new') return { path: 'record_new' };
   if (pathname.startsWith('/records/')) {
     const id = pathname.replace('/records/', '').trim();
@@ -58,17 +61,22 @@ function MainAppContent() {
 
   const [route, setRoute] = useState<AppRoute>(parseCurrentRoute());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [liveAlertBanner, setLiveAlertBanner] = useState<DeviceNotificationPayload | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(() =>
     getDeviceNotificationPermission()
   );
   const [promptDismissed, setPromptDismissed] = useState(false);
+
+  const langRef = useRef(lang);
+  langRef.current = lang;
+  const companyNameRef = useRef(companyName);
+  companyNameRef.current = companyName;
 
   const navigateTo = (newRoute: AppRoute) => {
     setRoute(newRoute);
     let url = '/records';
     if (newRoute.path === 'login') url = '/login';
     else if (newRoute.path === 'records') url = '/records';
+    else if (newRoute.path === 'files') url = '/files';
     else if (newRoute.path === 'notifications') url = '/notifications';
     else if (newRoute.path === 'record_new') url = '/records/new';
     else if (newRoute.path === 'record_edit') url = `/records/${newRoute.id}`;
@@ -111,46 +119,58 @@ function MainAppContent() {
   }, []);
 
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) return;
+    if (!user?.id || !isSupabaseConfigured) return;
 
     const runAutomaticChecks = async () => {
+      const activeLang = langRef.current;
+      const activeCompany = companyNameRef.current;
+
       // 1. Trigger idempotent backend email & log check (only sends if un-logged 30-day record exists)
-      await triggerAutomaticExpiryCheck({
-        lang,
-        onAlertTriggered: (payload) => {
-          setLiveAlertBanner(payload);
-        },
-      });
+      await triggerAutomaticExpiryCheck({ lang: activeLang });
 
-      // 2. Check local 30-day records for in-app banner & device OS notification
+      // 2. Check local 30-day records & files for device OS notification
       try {
-        const { data, error } = await supabase.from('records_with_status').select('*');
-        if (error || !data) return;
-
-        const dueRecords = filterExact30DayCivilIdRecords(data as RecordItem[]);
-        if (dueRecords.length === 0) return;
-
-        const payload = buildExpiryAlertMessage(dueRecords, companyName, lang);
-        setLiveAlertBanner(payload);
-
         if (!isDeviceNotificationsEnabled()) return;
 
-        const unnotified = dueRecords.filter(
+        const [{ data: recordsData }, { data: filesData }] = await Promise.all([
+          supabase.from('records_with_status').select('*'),
+          supabase.from('managed_files').select('*'),
+        ]);
+
+        const dueRecords = recordsData
+          ? filterExact30DayCivilIdRecords(recordsData as RecordItem[])
+          : [];
+        const dueFiles = filesData
+          ? filterExact30DayFiles(filesData as ManagedFileItem[])
+          : [];
+
+        if (dueRecords.length === 0 && dueFiles.length === 0) return;
+
+        const unnotifiedRecords = dueRecords.filter(
           (r) =>
             !hasNotifiedTodayForKey(
               `${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`
             )
         );
-        if (unnotified.length === 0) return;
+        const unnotifiedFiles = dueFiles.filter(
+          (f) => !hasNotifiedTodayForKey(`file|${f.id}|${f.expiry_date || ''}`)
+        );
+        if (unnotifiedRecords.length === 0 && unnotifiedFiles.length === 0) return;
 
-        const unnotifiedPayload = buildExpiryAlertMessage(unnotified, companyName, lang);
+        const unnotifiedPayload = buildExpiryAlertMessage(
+          unnotifiedRecords,
+          activeCompany,
+          activeLang,
+          unnotifiedFiles
+        );
         const shown = await showDeviceNotification(unnotifiedPayload);
         if (shown) {
-          markNotifiedTodayForKeys(
-            unnotified.map(
+          markNotifiedTodayForKeys([
+            ...unnotifiedRecords.map(
               (r) => `${r.id}|${r.unique_number_expiry_date || r.unique_number_expiry || ''}`
-            )
-          );
+            ),
+            ...unnotifiedFiles.map((f) => `file|${f.id}|${f.expiry_date || ''}`),
+          ]);
         }
       } catch (err) {
         console.warn('Device notification sync check failed:', err);
@@ -190,8 +210,11 @@ function MainAppContent() {
             .maybeSingle();
 
           if (rec) {
-            const msg = buildExpiryAlertMessage([rec as RecordItem], companyName, lang);
-            setLiveAlertBanner(msg);
+            const msg = buildExpiryAlertMessage(
+              [rec as RecordItem],
+              companyNameRef.current,
+              langRef.current
+            );
 
             const dedupeKey = `${row.record_id}|${row.target_expiry || ''}`;
             if (isDeviceNotificationsEnabled() && !hasNotifiedTodayForKey(dedupeKey)) {
@@ -210,14 +233,14 @@ function MainAppContent() {
       window.removeEventListener(NOTIF_PREF_EVENT, handlePrefEnabled);
       supabase.removeChannel(realtimeChannel);
     };
-  }, [user, companyName, lang]);
+  }, [user?.id]);
 
   const handleRequestNotifPermissionBanner = async () => {
     const result = await requestDeviceNotificationPermission();
     setNotifPermission(result);
     if (result === 'granted') {
       await showDeviceNotification({
-        title: isAr ? "تم تفعيل إشعارات A'system التلقائية" : "A'system Automatic Alerts Enabled",
+        title: isAr ? 'تم تفعيل إشعارات Al-Muhallab التلقائية' : 'Al-Muhallab Automatic Alerts Enabled',
         body: isAr
           ? 'سيتم تنبيهك تلقائياً فور بقاء ٣٠ يوماً على انتهاء الرقم المدني لأي شخص.'
           : 'You will automatically receive alerts when any Civil ID has 30 days remaining.',
@@ -249,7 +272,12 @@ function MainAppContent() {
     );
   }
 
-  const currentSidebarTab = route.path === 'notifications' ? 'notifications' : 'records';
+  const currentSidebarTab =
+    route.path === 'notifications'
+      ? 'notifications'
+      : route.path === 'files'
+      ? 'files'
+      : 'records';
 
   return (
     <div className="min-h-screen bg-[#F4F6F8] dark:bg-slate-950 flex flex-col lg:flex-row text-slate-900 dark:text-slate-100 transition-colors">
@@ -258,6 +286,7 @@ function MainAppContent() {
         currentTab={currentSidebarTab}
         onSelectTab={(tab) => {
           if (tab === 'notifications') navigateTo({ path: 'notifications' });
+          else if (tab === 'files') navigateTo({ path: 'files' });
           else navigateTo({ path: 'records' });
         }}
         onAddNewRecord={() => navigateTo({ path: 'record_new' })}
@@ -272,11 +301,11 @@ function MainAppContent() {
           <div className="flex items-center gap-2.5 min-w-0">
             <img
               src="/logo.png"
-              alt={companyName || "A'system"}
+              alt={companyName || 'Al-Muhallab'}
               className="w-8 h-8 object-contain shrink-0"
             />
             <span dir="ltr" className="font-brand text-xl tracking-wide truncate">
-              {companyName || "A'system"}
+              {companyName || 'Al-Muhallab'}
             </span>
           </div>
 
@@ -351,39 +380,9 @@ function MainAppContent() {
             </div>
           )}
 
-          {/* Live Automatic 30-Day Expiry Alert Banner (Always visible even if OS alerts are blocked) */}
-          {liveAlertBanner && (
-            <div className="flex items-start justify-between gap-3 p-4 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl text-amber-950 dark:text-amber-100 shadow-xs">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="text-sm font-bold">{liveAlertBanner.title}</p>
-                  <p className="text-xs whitespace-pre-line leading-relaxed text-amber-900 dark:text-amber-200">
-                    {liveAlertBanner.body}
-                  </p>
-                  {route.path !== 'notifications' && (
-                    <button
-                      type="button"
-                      onClick={() => navigateTo({ path: 'notifications' })}
-                      className="inline-block mt-1 text-xs font-bold text-[#0F766E] dark:text-teal-300 underline hover:no-underline cursor-pointer"
-                    >
-                      {isAr ? 'عرض سجل الإشعارات والبريد' : 'View Notifications Log'}
-                    </button>
-                  )}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLiveAlertBanner(null)}
-                className="p-1 text-amber-700 dark:text-amber-300 hover:bg-amber-200/60 dark:hover:bg-amber-900 rounded-lg cursor-pointer shrink-0"
-                title={isAr ? 'إغلاق التنبيه' : 'Dismiss alert'}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
           {route.path === 'notifications' && <NotificationsView />}
+
+          {route.path === 'files' && <FilesView />}
 
           {route.path === 'records' && (
             <DashboardView
