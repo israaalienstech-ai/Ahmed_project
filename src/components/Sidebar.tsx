@@ -135,21 +135,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
-        {/* Navigation Links (2 distinct pages — duplicate removed) */}
-        <nav className="flex-1 min-h-0 px-3 py-6 space-y-1.5 overflow-y-auto sidebar-scrollbar">
+        {/* Navigation Links */}
+        <nav className="flex-1 min-h-0 px-3 py-5 space-y-1 overflow-y-auto sidebar-scrollbar">
           <button
             type="button"
             onClick={() => {
               onSelectTab('records');
               if (onCloseMobile) onCloseMobile();
             }}
-            className={`w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-3 min-h-[42px] px-3.5 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
               currentTab === 'records'
-                ? 'bg-white/15 text-white font-bold shadow-xs'
-                : 'text-white/80 hover:bg-white/10 hover:text-white'
+                ? 'bg-white/12 text-white font-semibold'
+                : 'text-white/75 font-medium hover:bg-white/6 hover:text-white'
             }`}
           >
-            <Users className="w-5 h-5 text-teal-300 shrink-0" />
+            <Users className={`w-4 h-4 shrink-0 ${currentTab === 'records' ? 'text-white' : 'text-white/60'}`} />
             <span>{isAr ? 'سجلات' : 'Records'}</span>
           </button>
 
@@ -159,13 +159,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onSelectTab('files');
               if (onCloseMobile) onCloseMobile();
             }}
-            className={`w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-3 min-h-[42px] px-3.5 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
               currentTab === 'files'
-                ? 'bg-white/15 text-white font-bold shadow-xs'
-                : 'text-white/80 hover:bg-white/10 hover:text-white'
+                ? 'bg-white/12 text-white font-semibold'
+                : 'text-white/75 font-medium hover:bg-white/6 hover:text-white'
             }`}
           >
-            <FolderOpen className="w-5 h-5 text-teal-300 shrink-0" />
+            <FolderOpen className={`w-4 h-4 shrink-0 ${currentTab === 'files' ? 'text-white' : 'text-white/60'}`} />
             <span>{isAr ? 'الملفات والوثائق' : 'Files & Documents'}</span>
           </button>
 
@@ -175,13 +175,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onSelectTab('notifications');
               if (onCloseMobile) onCloseMobile();
             }}
-            className={`w-full flex items-center gap-3 min-h-[44px] px-4 py-2.5 rounded-xl font-medium text-sm transition-all cursor-pointer ${
+            className={`w-full flex items-center gap-3 min-h-[42px] px-3.5 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
               currentTab === 'notifications'
-                ? 'bg-white/15 text-white font-bold shadow-xs'
-                : 'text-white/80 hover:bg-white/10 hover:text-white'
+                ? 'bg-white/12 text-white font-semibold'
+                : 'text-white/75 font-medium hover:bg-white/6 hover:text-white'
             }`}
           >
-            <Mail className="w-5 h-5 text-teal-300 shrink-0" />
+            <Mail className={`w-4 h-4 shrink-0 ${currentTab === 'notifications' ? 'text-white' : 'text-white/60'}`} />
             <span>{isAr ? 'التنبيهات' : 'Notifications'}</span>
           </button>
         </nav>
@@ -194,20 +194,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={handleToggleDeviceNotifications}
-              className={`w-full flex items-center justify-center gap-2 min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                notifEnabled
-                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 hover:bg-emerald-500/30'
-                  : 'bg-white/10 hover:bg-white/15 text-white/90'
-              }`}
+              className="w-full flex items-center justify-center gap-2 min-h-[36px] px-3 py-1.5 text-xs font-medium rounded-lg bg-white/8 hover:bg-white/14 text-white/90 transition-colors cursor-pointer"
             >
               {notifEnabled ? (
                 <>
-                  <BellRing className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  <BellRing className="w-3.5 h-3.5 text-white/80 shrink-0" />
                   <span>{isAr ? 'إشعارات الجهاز: مفعلة' : 'Device Alerts: On'}</span>
                 </>
               ) : (
                 <>
-                  <Bell className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <Bell className="w-3.5 h-3.5 text-white/60 shrink-0" />
                   <span>{isAr ? 'تفعيل إشعارات الجهاز' : 'Enable Device Alerts'}</span>
                 </>
               )}
@@ -219,16 +215,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={toggleTheme}
               title={isDark ? (isAr ? 'الوضع الفاتح' : 'Light Mode') : isAr ? 'الوضع الداكن' : 'Dark Mode'}
-              className="flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/15 text-white rounded-lg transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1.5 text-xs font-medium bg-white/8 hover:bg-white/14 text-white/90 rounded-lg transition-colors cursor-pointer"
             >
               {isDark ? (
                 <>
-                  <Sun className="w-3.5 h-3.5 text-amber-300" />
+                  <Sun className="w-3.5 h-3.5 text-white/80" />
                   <span>{isAr ? 'فاتح' : 'Light'}</span>
                 </>
               ) : (
                 <>
-                  <Moon className="w-3.5 h-3.5 text-teal-200" />
+                  <Moon className="w-3.5 h-3.5 text-white/80" />
                   <span>{isAr ? 'داكن' : 'Dark'}</span>
                 </>
               )}
@@ -238,16 +234,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={toggleLang}
               title={isAr ? 'التبديل للإنجليزية (LTR)' : 'Switch to Arabic (RTL)'}
-              className="flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1.5 text-xs font-medium bg-white/10 hover:bg-white/15 text-white rounded-lg transition-colors cursor-pointer"
+              className="flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1.5 text-xs font-medium bg-white/8 hover:bg-white/14 text-white/90 rounded-lg transition-colors cursor-pointer"
             >
-              <Languages className="w-3.5 h-3.5 text-teal-300" />
-              <span className="font-mono">{isAr ? 'EN (LTR)' : 'AR (RTL)'}</span>
+              <Languages className="w-3.5 h-3.5 text-white/80" />
+              <span className="font-mono">{isAr ? 'EN' : 'AR'}</span>
             </button>
           </div>
         </div>
 
         {/* Footer: User profile & Logout */}
-        <div className="p-4 border-t border-white/10 dark:border-slate-800 bg-black/15">
+        <div className="p-4 border-t border-white/10 dark:border-slate-800 bg-black/10">
           <div className="flex items-center gap-3 mb-3">
             <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 text-white/90 shrink-0">
               <UserIcon className="w-4 h-4" />
@@ -256,16 +252,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <p className="text-xs font-semibold text-white truncate" dir="ltr">
                 {user?.email}
               </p>
-              <div className="flex items-center gap-1 mt-0.5">
+              <div className="flex items-center gap-1 mt-0.5 text-[11px] text-white/65">
                 {isAdmin ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded">
-                    <ShieldCheck className="w-3 h-3" />
-                    {isAr ? 'مدير النظام' : 'Admin'}
-                  </span>
+                  <>
+                    <ShieldCheck className="w-3 h-3 shrink-0" />
+                    <span>{isAr ? 'مدير النظام' : 'Admin'}</span>
+                  </>
                 ) : (
-                  <span className="text-[10px] text-white/60">
-                    {isAr ? 'مستخدم معتمد' : 'Authorized User'}
-                  </span>
+                  <span>{isAr ? 'مستخدم معتمد' : 'Authorized User'}</span>
                 )}
               </div>
             </div>
@@ -274,9 +268,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => logout()}
-            className="w-full flex items-center justify-center gap-2 min-h-[40px] px-3 py-2 text-xs font-medium text-red-200 hover:text-white bg-red-500/15 hover:bg-red-600/30 rounded-lg transition-colors cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 min-h-[38px] px-3 py-1.5 text-xs font-medium text-white/80 hover:text-white bg-white/6 hover:bg-white/12 rounded-lg transition-colors cursor-pointer"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5" />
             <span>{isAr ? 'تسجيل الخروج' : 'Sign Out'}</span>
           </button>
         </div>

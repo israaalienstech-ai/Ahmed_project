@@ -51,7 +51,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center p-4 bg-[#F4F6F8] dark:bg-slate-950 transition-colors relative">
+    <div className="min-h-screen flex flex-col justify-center items-center p-4 bg-[#F8FAFC] dark:bg-slate-950 transition-colors relative">
       {/* Top Toolbar for Theme & Language/Direction */}
       <div className="fixed top-4 end-4 flex items-center gap-2 z-20">
         <button
@@ -111,7 +111,7 @@ VITE_SUPABASE_ANON_KEY="your-anon-key"`}
       )}
 
       {/* Main Login Card */}
-      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-[#E2E8F0] dark:border-slate-800 p-8">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-[#E2E8F0] dark:border-slate-800 p-8">
         {/* Company Header & Logo */}
         <div className="flex flex-col items-center text-center mb-8">
           <img

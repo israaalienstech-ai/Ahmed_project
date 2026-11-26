@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { ExpiryStatus } from '../types';
 import { usePreferences } from '../context/PreferencesContext';
 
@@ -17,38 +18,44 @@ export const StatusChip: React.FC<StatusChipProps> = ({ label, status, daysLeft 
   const { lang } = usePreferences();
   const isAr = lang === 'ar';
 
-  let bgClass =
-    'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0] dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/80';
+  let textClass = 'text-emerald-700 dark:text-emerald-400';
   let statusText = isAr ? 'ساري' : 'Valid';
+  let Icon = CheckCircle2;
 
   if (status === 'expired') {
-    bgClass =
-      'bg-[#FEE2E2] text-[#B91C1C] border-[#FECACA] dark:bg-red-950/60 dark:text-red-300 dark:border-red-800/80';
+    textClass = 'text-red-600 dark:text-red-400';
     statusText = isAr ? 'منتهي' : 'Expired';
+    Icon = XCircle;
   } else if (status === 'expiring_soon') {
-    bgClass =
-      'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A] dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/80';
+    textClass = 'text-amber-600 dark:text-amber-400';
     statusText = isAr ? 'ينتهي قريباً' : 'Expiring soon';
+    Icon = Clock;
   }
 
   let daysText = '';
   if (daysLeft !== undefined && daysLeft !== null) {
     if (daysLeft < 0) {
-      daysText = isAr ? `(منذ ${Math.abs(daysLeft)} يوم)` : `(${Math.abs(daysLeft)}d ago)`;
+      daysText = isAr ? `منذ ${Math.abs(daysLeft)} يوم` : `${Math.abs(daysLeft)}d ago`;
     } else if (daysLeft === 0) {
-      daysText = isAr ? `(اليوم)` : `(Today)`;
+      daysText = isAr ? 'اليوم' : 'Today';
     } else {
-      daysText = isAr ? `(${daysLeft} يوم)` : `(${daysLeft}d)`;
+      daysText = isAr ? `متبقٍ ${daysLeft} يوم` : `${daysLeft}d left`;
     }
   }
 
   return (
-    <div
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border ${bgClass}`}
-    >
-      <span className="font-semibold text-slate-700 dark:text-slate-200">{label}:</span>
-      <span>{statusText}</span>
-      {daysText && <span className="font-mono tabular-nums text-[11px] opacity-90">{daysText}</span>}
+    <div className="inline-flex items-center gap-1.5 text-xs leading-relaxed">
+      <Icon className={`w-3.5 h-3.5 shrink-0 ${textClass}`} />
+      <span className="font-medium text-slate-500 dark:text-slate-400">{label}:</span>
+      <span className={`font-semibold ${textClass}`}>{statusText}</span>
+      {daysText && (
+        <>
+          <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+          <span className="font-mono tabular-nums text-[11px] text-slate-500 dark:text-slate-400">
+            {daysText}
+          </span>
+        </>
+      )}
     </div>
   );
 };

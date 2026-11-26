@@ -185,14 +185,14 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
     return isAr ? `متبقٍ ${days} يوم` : `${days}d left`;
   };
 
-  const getStatusBadgeClasses = (status: ExpiryStatus) => {
+  const getStatusTextClasses = (status: ExpiryStatus) => {
     if (status === 'expired') {
-      return 'bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800';
+      return 'text-red-600 dark:text-red-400';
     }
     if (status === 'expiring_soon') {
-      return 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+      return 'text-amber-600 dark:text-amber-400';
     }
-    return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+    return 'text-emerald-700 dark:text-emerald-400';
   };
 
   const handleExportCsv = () => {
@@ -273,27 +273,20 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
     title: string,
     subtitle: string,
     items: CategorizedRecord[],
-    accent: 'red' | 'amber' | 'emerald',
+    _accent: 'red' | 'amber' | 'emerald',
     icon: React.ReactNode
   ) => {
-    const headerColors =
-      accent === 'red'
-        ? 'bg-red-50/90 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-900 dark:text-red-200'
-        : accent === 'amber'
-        ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200'
-        : 'bg-emerald-50/90 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900 text-emerald-900 dark:text-emerald-200';
-
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
-        <div className={`px-4 py-3 border-b flex items-center justify-between gap-3 ${headerColors}`}>
+        <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             {icon}
             <div>
-              <h4 className="text-sm font-bold">{title}</h4>
-              <p className="text-[11px] opacity-80">{subtitle}</p>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white">{title}</h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{subtitle}</p>
             </div>
           </div>
-          <span className="px-2.5 py-0.5 rounded-md text-xs font-bold font-mono bg-white/80 dark:bg-slate-900/70">
+          <span className="text-xs font-bold font-mono tabular-nums text-slate-600 dark:text-slate-300">
             {items.length}
           </span>
         </div>
@@ -351,7 +344,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap">
                         <span
-                          className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-bold border ${getStatusBadgeClasses(
+                          className={`text-[11px] font-semibold tabular-nums ${getStatusTextClasses(
                             civilStatus
                           )}`}
                         >
@@ -366,7 +359,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap">
                         <span
-                          className={`inline-flex px-2 py-0.5 rounded-md text-[11px] font-bold border ${getStatusBadgeClasses(
+                          className={`text-[11px] font-semibold tabular-nums ${getStatusTextClasses(
                             passportStatus
                           )}`}
                         >
@@ -393,9 +386,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
         {/* Modal Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400">
-              <FileBarChart2 className="w-5 h-5" />
-            </div>
+            <FileBarChart2 className="w-5 h-5 text-[#0F766E] dark:text-teal-400 shrink-0" />
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
                 {isAr ? 'ريبورت سريع لحالة السجلات' : 'Quick Records Status Report'}
@@ -413,7 +404,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
               type="button"
               onClick={handleExportCsv}
               disabled={loading || records.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isAr ? 'تصدير Excel' : 'Export CSV'}</span>
@@ -439,7 +430,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
         </div>
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-[#F4F6F8] dark:bg-slate-950">
+        <div className="flex-1 overflow-y-auto p-5 space-y-5 bg-[#F8FAFC] dark:bg-slate-950">
           {error && (
             <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-xs font-semibold text-red-800 dark:text-red-200">
               {error}
@@ -453,19 +444,19 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
               onClick={() =>
                 setActiveCategory((prev) => (prev === 'expired' ? 'all' : 'expired'))
               }
-              className={`text-start p-4 rounded-xl border transition-all cursor-pointer ${
+              className={`text-start p-4 rounded-xl border bg-white dark:bg-slate-900 transition-all cursor-pointer ${
                 activeCategory === 'expired'
-                  ? 'bg-red-50 dark:bg-red-950/50 border-red-400 ring-2 ring-red-400/40'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-red-300'
+                  ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-red-700 dark:text-red-400">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   {isAr ? 'خلصت مدتهم (منتهية)' : 'Expired'}
                 </span>
                 <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
               </div>
-              <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {categorized.expired.length}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -480,19 +471,19 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
                   prev === 'expiring_soon' ? 'all' : 'expiring_soon'
                 )
               }
-              className={`text-start p-4 rounded-xl border transition-all cursor-pointer ${
+              className={`text-start p-4 rounded-xl border bg-white dark:bg-slate-900 transition-all cursor-pointer ${
                 activeCategory === 'expiring_soon'
-                  ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-400 ring-2 ring-amber-400/40'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-300'
+                  ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   {isAr ? 'قربت تخلص مدتهم' : 'Expiring Soon'}
                 </span>
                 <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               </div>
-              <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {categorized.expiringSoon.length}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -503,19 +494,19 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
             <button
               type="button"
               onClick={() => setActiveCategory((prev) => (prev === 'valid' ? 'all' : 'valid'))}
-              className={`text-start p-4 rounded-xl border transition-all cursor-pointer ${
+              className={`text-start p-4 rounded-xl border bg-white dark:bg-slate-900 transition-all cursor-pointer ${
                 activeCategory === 'valid'
-                  ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-400 ring-2 ring-emerald-400/40'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-300'
+                  ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
               }`}
             >
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                   {isAr ? 'لسه بدري عليها (سارية)' : 'Valid (> 30 Days)'}
                 </span>
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
+              <p className="text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
                 {categorized.valid.length}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -526,7 +517,7 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
 
           {/* Search & Category Tabs Bar */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1 p-1 bg-slate-200/70 dark:bg-slate-800 rounded-lg flex-wrap">
               {(
                 [
                   { id: 'all', labelAr: 'عرض الكل', labelEn: 'All' },
@@ -539,10 +530,10 @@ export const QuickReportModal: React.FC<QuickReportModalProps> = ({ isOpen, onCl
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveCategory(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
                     activeCategory === tab.id
-                      ? 'bg-[#0F766E] text-white'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   {isAr ? tab.labelAr : tab.labelEn}

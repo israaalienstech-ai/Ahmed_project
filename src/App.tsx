@@ -280,7 +280,7 @@ function MainAppContent() {
       : 'records';
 
   return (
-    <div className="min-h-screen bg-[#F4F6F8] dark:bg-slate-950 flex flex-col lg:flex-row text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex flex-col lg:flex-row text-slate-900 dark:text-slate-100 transition-colors">
       {/* Persistent Sidebar */}
       <Sidebar
         currentTab={currentSidebarTab}
@@ -342,17 +342,17 @@ function MainAppContent() {
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-5">
           {/* Prompt to enable OS notifications if permission is still 'default' */}
           {notifPermission === 'default' && !promptDismissed && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 rounded-xl text-sm text-teal-950 dark:text-teal-100 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-slate-100 shadow-xs">
               <div className="flex items-center gap-2.5">
-                <BellRing className="w-5 h-5 text-[#0F766E] dark:text-teal-400 shrink-0" />
+                <BellRing className="w-4 h-4 text-[#0F766E] dark:text-teal-400 shrink-0" />
                 <div>
-                  <p className="font-bold text-xs sm:text-sm">
+                  <p className="font-semibold text-xs sm:text-sm">
                     {isAr
                       ? 'فعّل إشعارات الجهاز ليصلك التنبيه التلقائي على الكمبيوتر والهاتف'
                       : 'Enable device notifications for automatic alerts on desktop & mobile'}
                   </p>
                   {isRunningInIframe() && (
-                    <p className="text-[11px] text-teal-800/80 dark:text-teal-300/80 mt-0.5">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                       {isAr
                         ? 'ملاحظة: عند فتح التطبيق في نافذة مستقلة أو تثبيته كأيقونة ستعمل إشعارات النظام بكامل كفاءتها.'
                         : 'Note: System notifications work best when opened in its own window or installed as an app icon.'}
@@ -364,14 +364,14 @@ function MainAppContent() {
                 <button
                   type="button"
                   onClick={handleRequestNotifPermissionBanner}
-                  className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-lg transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#0F766E] hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
                 >
-                  {isAr ? 'تفعيل الإشعارات الآن' : 'Enable Notifications'}
+                  {isAr ? 'تفعيل الإشعارات' : 'Enable Notifications'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setPromptDismissed(true)}
-                  className="p-1 text-teal-700 dark:text-teal-300 hover:bg-teal-100 dark:hover:bg-teal-900 rounded-lg cursor-pointer"
+                  className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
                   title={isAr ? 'إخفاء' : 'Dismiss'}
                 >
                   <X className="w-4 h-4" />

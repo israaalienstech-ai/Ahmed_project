@@ -601,72 +601,75 @@ export const FilesView: React.FC = () => {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          type="button"
           onClick={() => setStatusFilter('all')}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-teal-500 transition-all ${
-            statusFilter === 'all' ? 'ring-2 ring-[#0F766E]' : ''
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
+            statusFilter === 'all'
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-teal-900 dark:text-teal-300 bg-teal-100 dark:bg-teal-950/70 px-2.5 py-1 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'جميع الملفات' : 'All Files'}
             </span>
-            <div className="p-2.5 bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 rounded-xl">
-              <FolderOpen className="w-5 h-5" />
-            </div>
+            <FolderOpen className="w-4 h-4 text-[#0F766E] dark:text-teal-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
             {isAr ? 'إجمالي الملفات المرفوعة' : 'Total Uploaded Files'}
           </p>
-          <span className="text-3xl font-extrabold text-[#0F766E] dark:text-teal-400 font-mono tabular-nums">
+          <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
             {metrics.total}
           </span>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter((curr) => (curr === 'expiring_soon' ? 'all' : 'expiring_soon'))}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-amber-400 transition-all ${
-            statusFilter === 'expiring_soon' ? 'ring-2 ring-amber-500' : ''
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
+            statusFilter === 'expiring_soon'
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-900 dark:text-amber-300 bg-[#FEF3C7] dark:bg-amber-950/70 px-2.5 py-1 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'تنبيه قبل شهر' : 'Within 30 Days'}
             </span>
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-xl">
-              <Clock className="w-5 h-5" />
-            </div>
+            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
             {isAr ? 'ملفات تحتاج تجديداً قريباً' : 'Files Needing Renewal'}
           </p>
-          <span className="text-3xl font-extrabold text-amber-800 dark:text-amber-400 font-mono tabular-nums">
+          <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
             {metrics.expiringSoon}
           </span>
-        </div>
+        </button>
 
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter((curr) => (curr === 'expired' ? 'all' : 'expired'))}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-red-400 transition-all ${
-            statusFilter === 'expired' ? 'ring-2 ring-red-500' : ''
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
+            statusFilter === 'expired'
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-[#B91C1C] dark:text-red-300 bg-[#FEE2E2] dark:bg-red-950/70 px-2.5 py-1 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'منتهية الصلاحية' : 'Expired'}
             </span>
-            <div className="p-2.5 bg-red-50 dark:bg-red-950/60 text-[#B91C1C] dark:text-red-400 rounded-xl">
-              <XCircle className="w-5 h-5" />
-            </div>
+            <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
             {isAr ? 'ملفات منتهية بالفعل' : 'Already Expired Files'}
           </p>
-          <span className="text-3xl font-extrabold text-[#B91C1C] dark:text-red-400 font-mono tabular-nums">
+          <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
             {metrics.expired}
           </span>
-        </div>
+        </button>
       </div>
 
       {/* Search & Filter Bar */}
@@ -708,14 +711,14 @@ export const FilesView: React.FC = () => {
           </select>
         </div>
 
-        <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-x-auto">
+        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg overflow-x-auto">
           <button
             type="button"
             onClick={() => setStatusFilter('all')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               statusFilter === 'all'
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-300'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {isAr ? `الكل (${files.length})` : `All (${files.length})`}
@@ -723,10 +726,10 @@ export const FilesView: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('expiring_soon')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               statusFilter === 'expiring_soon'
-                ? 'bg-[#FEF3C7] dark:bg-amber-950/80 text-[#92400E] dark:text-amber-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-300'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {isAr ? 'ينتهي قريباً' : 'Expiring Soon'}
@@ -734,10 +737,10 @@ export const FilesView: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('expired')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               statusFilter === 'expired'
-                ? 'bg-[#FEE2E2] dark:bg-red-950/80 text-[#B91C1C] dark:text-red-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-300'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {isAr ? 'منتهي' : 'Expired'}
@@ -745,10 +748,10 @@ export const FilesView: React.FC = () => {
           <button
             type="button"
             onClick={() => setStatusFilter('valid')}
-            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+            className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
               statusFilter === 'valid'
-                ? 'bg-[#DCFCE7] dark:bg-emerald-950/80 text-[#166534] dark:text-emerald-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-300'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
             {isAr ? 'ساري' : 'Valid'}
@@ -839,15 +842,15 @@ export const FilesView: React.FC = () => {
                       key={item.id}
                       onClick={() => openEditForm(item)}
                       title={isAr ? 'اضغط لفتح وتعديل بيانات المستند' : 'Click to open document details'}
-                      className="hover:bg-teal-50/40 dark:hover:bg-slate-800/70 transition-colors cursor-pointer"
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors cursor-pointer"
                     >
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 shrink-0">
+                          <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
                             <FileText className="w-4 h-4" />
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900 dark:text-white">
+                            <div className="font-semibold text-slate-900 dark:text-white">
                               {item.file_name}
                             </div>
                             {item.notes && (
@@ -861,7 +864,7 @@ export const FilesView: React.FC = () => {
 
                       <td className="px-5 py-4 whitespace-nowrap">
                         {item.file_type ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-300 border border-teal-200/70 dark:border-teal-800">
+                          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                             {item.file_type}
                           </span>
                         ) : (
@@ -887,13 +890,13 @@ export const FilesView: React.FC = () => {
 
                       <td className="px-5 py-4 whitespace-nowrap">
                         {alertAlreadySent ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                             <span>{isAr ? 'تم إرسال تنبيه التجديد' : 'Renewal Alert Sent'}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                            <Bell className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                            <Bell className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400 shrink-0" />
                             <span>{isAr ? 'مجدول قبل الانتهاء بشهر' : 'Scheduled 30d Prior'}</span>
                           </span>
                         )}

@@ -346,7 +346,7 @@ export const NotificationsView: React.FC = () => {
           <button
             type="button"
             onClick={() => setQuickReportOpen(true)}
-            className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-xl transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-xl shadow-xs transition-colors cursor-pointer"
           >
             <FileBarChart2 className="w-4 h-4" />
             <span>{isAr ? 'ريبورت سريع' : 'Quick Report'}</span>
@@ -356,14 +356,14 @@ export const NotificationsView: React.FC = () => {
             <button
               type="button"
               onClick={() => setEmailsModalOpen(true)}
-              className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-[#E2E8F0] dark:border-slate-800 rounded-xl transition-colors shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl transition-colors shadow-xs cursor-pointer"
               title={isAr ? 'إدارة إيميلات مستلمي التنبيهات' : 'Manage alert recipient emails'}
             >
               <Mail className="w-4 h-4 text-[#0F766E] dark:text-teal-400" />
               <span>{isAr ? 'مستلمو البريد' : 'Recipients'}</span>
               {alertEmails.length > 0 && (
-                <span className="px-1.5 py-0.5 text-[10px] font-mono bg-teal-50 dark:bg-teal-950/70 text-[#0F766E] dark:text-teal-300 rounded">
-                  {alertEmails.length}
+                <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  ({alertEmails.length})
                 </span>
               )}
             </button>
@@ -388,34 +388,25 @@ export const NotificationsView: React.FC = () => {
       )}
 
       {/* Visual Email Delivery Status Indicator */}
-      <div
-        className={`flex flex-col md:flex-row md:items-center justify-between gap-3 px-4 py-3.5 rounded-xl border shadow-xs transition-colors ${
-          emailStatusSummary.state === 'sent'
-            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-950 dark:text-emerald-100'
-            : emailStatusSummary.state === 'failed'
-            ? 'bg-red-50/90 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-950 dark:text-red-100'
-            : 'bg-white dark:bg-slate-900 border-[#E2E8F0] dark:border-slate-800 text-slate-700 dark:text-slate-200'
-        }`}
-      >
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 px-4 py-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-start sm:items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 shrink-0">
-            <span
-              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                emailStatusSummary.state === 'sent'
-                  ? 'bg-emerald-500 ring-4 ring-emerald-500/20'
-                  : emailStatusSummary.state === 'failed'
-                  ? 'bg-red-500 ring-4 ring-red-500/20'
-                  : 'bg-slate-400 ring-4 ring-slate-400/20'
-              }`}
-            />
             {emailStatusSummary.state === 'sent' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             ) : emailStatusSummary.state === 'failed' ? (
-              <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+              <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
             ) : (
-              <Mail className="w-5 h-5 text-slate-400 shrink-0" />
+              <Mail className="w-4 h-4 text-slate-400 shrink-0" />
             )}
-            <span className="text-xs sm:text-sm font-bold">
+            <span
+              className={`text-xs sm:text-sm font-semibold ${
+                emailStatusSummary.state === 'sent'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : emailStatusSummary.state === 'failed'
+                  ? 'text-red-700 dark:text-red-400'
+                  : 'text-slate-700 dark:text-slate-200'
+              }`}
+            >
               {emailStatusSummary.state === 'sent'
                 ? isAr
                   ? 'حالة البريد الإلكتروني: تم الإرسال بنجاح'
@@ -431,26 +422,26 @@ export const NotificationsView: React.FC = () => {
           </div>
 
           {emailStatusSummary.state === 'failed' && emailStatusSummary.reason && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-100/90 dark:bg-red-900/60 border border-red-300 dark:border-red-700 text-xs font-semibold text-red-900 dark:text-red-100">
-              <span>{isAr ? 'سبب الفشل:' : 'Reason:'}</span>
-              <span>{emailStatusSummary.reason}</span>
+            <span className="text-xs font-medium text-red-600 dark:text-red-400">
+              {isAr ? `— السبب: ${emailStatusSummary.reason}` : `— Reason: ${emailStatusSummary.reason}`}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-3 text-xs shrink-0">
+        <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 shrink-0">
           {(emailStatusSummary.sentCount > 0 || emailStatusSummary.failedCount > 0) && (
-            <div className="flex items-center gap-2 font-mono">
-              <span className="px-2 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 font-bold">
+            <div className="flex items-center gap-2 font-mono tabular-nums">
+              <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                 {isAr ? `ناجح: ${emailStatusSummary.sentCount}` : `Sent: ${emailStatusSummary.sentCount}`}
               </span>
-              <span className="px-2 py-0.5 rounded bg-red-100/80 dark:bg-red-950/70 text-red-800 dark:text-red-300 font-bold">
+              <span aria-hidden="true">·</span>
+              <span className="text-red-600 dark:text-red-400 font-semibold">
                 {isAr ? `فاشل: ${emailStatusSummary.failedCount}` : `Failed: ${emailStatusSummary.failedCount}`}
               </span>
             </div>
           )}
           {emailStatusSummary.sentAt && (
-            <span className="text-[11px] opacity-75 font-mono tabular-nums">
+            <span className="text-[11px] font-mono tabular-nums">
               {formatKuwaitDate(emailStatusSummary.sentAt)}
             </span>
           )}
@@ -629,13 +620,13 @@ export const NotificationsView: React.FC = () => {
 
                       <td className="px-5 py-4 whitespace-nowrap">
                         {log.channel === 'email' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-teal-50/80 dark:bg-teal-950/60 text-teal-900 dark:text-teal-300 border border-teal-200 dark:border-teal-800 rounded-md text-xs font-medium">
-                            <Mail className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+                            <Mail className="w-3.5 h-3.5 text-[#0F766E] dark:text-teal-400 shrink-0" />
                             <span>{isAr ? 'بريد إلكتروني' : 'Email'}</span>
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-medium">
-                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span>{isAr ? 'واتساب' : 'WhatsApp'}</span>
                           </span>
                         )}
@@ -648,24 +639,24 @@ export const NotificationsView: React.FC = () => {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
+                            className={`inline-flex items-center gap-1.5 text-xs font-semibold shrink-0 ${
                               isSuccess
-                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                                : 'bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800'
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-red-700 dark:text-red-400'
                             }`}
                           >
                             {isSuccess ? (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                             ) : (
-                              <XCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                              <XCircle className="w-3.5 h-3.5 shrink-0" />
                             )}
                             <span>
                               {isSuccess ? (isAr ? 'تم الإرسال' : 'Sent') : isAr ? 'فشل الإرسال' : 'Failed'}
                             </span>
                           </span>
                           {!isSuccess && log.error && (
-                            <span className="text-[11px] font-semibold text-red-700 dark:text-red-300 bg-red-50/70 dark:bg-red-950/40 px-2 py-0.5 rounded border border-red-200/70 dark:border-red-900">
-                              {isAr ? `السبب: ${log.error}` : `Reason: ${log.error}`}
+                            <span className="text-[11px] font-medium text-red-600 dark:text-red-400">
+                              {isAr ? `· ${log.error}` : `· ${log.error}`}
                             </span>
                           )}
                         </div>
@@ -803,7 +794,7 @@ export const NotificationsView: React.FC = () => {
                     <span
                       key={em}
                       dir="ltr"
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-300 border border-teal-200 dark:border-teal-800"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
                     >
                       <span>{em}</span>
                       <button
@@ -811,7 +802,7 @@ export const NotificationsView: React.FC = () => {
                         disabled={savingEmails}
                         onClick={() => handleRemoveRecipientEmail(em)}
                         title={isAr ? 'حذف الإيميل' : 'Remove email'}
-                        className="text-teal-700 dark:text-teal-300 hover:text-red-600 dark:hover:text-red-400 cursor-pointer disabled:opacity-50"
+                        className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer disabled:opacity-50"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>

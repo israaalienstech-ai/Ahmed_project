@@ -274,96 +274,93 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
       )}
 
       {/* 3 Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Card A: الرقم المدني ينتهي خلال ٣٠ يوماً */}
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter((curr) => (curr === 'expiring_soon' ? 'all' : 'expiring_soon'))}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-amber-400 dark:hover:border-amber-500 transition-all ${
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
             statusFilter === 'expiring_soon'
-              ? 'ring-2 ring-amber-500 bg-amber-50/20 dark:bg-amber-950/20'
-              : ''
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-amber-900 dark:text-amber-300 bg-[#FEF3C7] dark:bg-amber-950/70 px-2.5 py-1 rounded-md">
-              {isAr ? 'خلال 30 يوماً' : 'Within 30 Days'}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {isAr ? 'خلال ٣٠ يوماً' : 'Within 30 Days'}
             </span>
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 rounded-xl">
-              <Clock className="w-5 h-5" />
-            </div>
+            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
-            {isAr ? 'الرقم المدني ينتهي خلال ٣٠ يوماً' : 'Civil ID Expiring in 30 Days'}
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
+            {isAr ? 'الرقم المدني ينتهي قريباً' : 'Civil ID Expiring Soon'}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-amber-800 dark:text-amber-400 font-mono tabular-nums">
+            <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
               {metrics.civilIdExpiringSoon}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              {isAr ? 'سجل يحتاج تجديداً عاجلاً' : 'records need urgent renewal'}
+              {isAr ? 'سجل يحتاج تجديداً' : 'records need renewal'}
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Card B: الجواز ينتهي خلال سنة */}
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter((curr) => (curr === 'expiring_soon' ? 'all' : 'expiring_soon'))}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-teal-500 transition-all ${
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
             statusFilter === 'expiring_soon'
-              ? 'ring-2 ring-[#0F766E] bg-teal-50/20 dark:bg-teal-950/20'
-              : ''
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-teal-900 dark:text-teal-300 bg-teal-100 dark:bg-teal-950/70 px-2.5 py-1 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'خلال سنة' : 'Within 1 Year'}
             </span>
-            <div className="p-2.5 bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400 rounded-xl">
-              <Calendar className="w-5 h-5" />
-            </div>
+            <Calendar className="w-4 h-4 text-[#0F766E] dark:text-teal-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
-            {isAr ? 'الجواز ينتهي خلال سنة' : 'Passport Expiring Within 1 Year'}
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
+            {isAr ? 'الجواز ينتهي قريباً' : 'Passport Expiring Soon'}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-[#0F766E] dark:text-teal-400 font-mono tabular-nums">
+            <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
               {metrics.passportExpiringSoon}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
               {isAr ? 'جواز سفر قارب على الانتهاء' : 'passports nearing expiry'}
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Card C: منتهية بالفعل */}
-        <div
+        <button
+          type="button"
           onClick={() => setStatusFilter((curr) => (curr === 'expired' ? 'all' : 'expired'))}
-          className={`p-5 bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] shadow-xs cursor-pointer hover:border-red-400 transition-all ${
+          className={`text-start p-5 bg-white dark:bg-slate-900 border rounded-xl shadow-xs cursor-pointer transition-all ${
             statusFilter === 'expired'
-              ? 'ring-2 ring-red-500 bg-red-50/20 dark:bg-red-950/20'
-              : ''
+              ? 'border-[#0F766E] ring-2 ring-[#0F766E]/25'
+              : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
           }`}
         >
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-bold text-[#B91C1C] dark:text-red-300 bg-[#FEE2E2] dark:bg-red-950/70 px-2.5 py-1 rounded-md">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'منتهية الصلاحية' : 'Expired'}
             </span>
-            <div className="p-2.5 bg-red-50 dark:bg-red-950/60 text-[#B91C1C] dark:text-red-400 rounded-xl">
-              <XCircle className="w-5 h-5" />
-            </div>
+            <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
           </div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
-            {isAr ? 'منتهية بالفعل' : 'Already Expired'}
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">
+            {isAr ? 'وثائق منتهية بالفعل' : 'Already Expired'}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-[#B91C1C] dark:text-red-400 font-mono tabular-nums">
+            <span className="text-3xl font-bold text-slate-900 dark:text-white font-mono tabular-nums">
               {metrics.alreadyExpired}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              {isAr ? 'وثيقة انتهت صلاحيتها' : 'expired documents'}
+              {isAr ? 'وثيقة منتهية' : 'expired documents'}
             </span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Search Bar, Document Type Filter, Nationality Filter & Status Filter */}
@@ -426,11 +423,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
           </div>
 
           {/* Segmented Status Filter Buttons */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-full xl:w-auto overflow-x-auto">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-full xl:w-auto overflow-x-auto">
             <button
               type="button"
               onClick={() => setStatusFilter('all')}
-              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 statusFilter === 'all'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -441,9 +438,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
             <button
               type="button"
               onClick={() => setStatusFilter('expiring_soon')}
-              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 statusFilter === 'expiring_soon'
-                  ? 'bg-[#FEF3C7] dark:bg-amber-950/80 text-[#92400E] dark:text-amber-300 shadow-xs'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -452,9 +449,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
             <button
               type="button"
               onClick={() => setStatusFilter('expired')}
-              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 statusFilter === 'expired'
-                  ? 'bg-[#FEE2E2] dark:bg-red-950/80 text-[#B91C1C] dark:text-red-300 shadow-xs'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -463,9 +460,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
             <button
               type="button"
               onClick={() => setStatusFilter('valid')}
-              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[36px] px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                 statusFilter === 'valid'
-                  ? 'bg-[#DCFCE7] dark:bg-emerald-950/80 text-[#166534] dark:text-emerald-300 shadow-xs'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -475,16 +472,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
         </div>
 
         {/* Secondary Filter Row: Document Type + Reset Filters */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-100 dark:border-slate-800/80">
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
               {isAr ? 'نوع الوثيقة:' : 'Document Type:'}
             </span>
             <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
               <button
                 type="button"
                 onClick={() => setDocTypeFilter('all')}
-                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[32px] px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                   docTypeFilter === 'all'
                     ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -495,9 +492,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
               <button
                 type="button"
                 onClick={() => setDocTypeFilter('civil_id')}
-                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[32px] px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                   docTypeFilter === 'civil_id'
-                    ? 'bg-[#0F766E] text-white shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -506,9 +503,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
               <button
                 type="button"
                 onClick={() => setDocTypeFilter('passport')}
-                className={`min-h-[32px] px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[32px] px-3 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                   docTypeFilter === 'passport'
-                    ? 'bg-[#0F766E] text-white shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -521,7 +518,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
             <button
               type="button"
               onClick={resetAllFilters}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-800 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
               <span>{isAr ? 'مسح الفلاتر' : 'Clear Filters'}</span>
@@ -614,7 +611,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
                       key={item.id}
                       onClick={() => onEdit(item.id)}
                       title={isAr ? 'اضغط لفتح وتعديل بيانات السجل' : 'Click to open record details'}
-                      className="hover:bg-teal-50/40 dark:hover:bg-slate-800/70 transition-colors group cursor-pointer"
+                      className="hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors group cursor-pointer"
                     >
                       <td className="px-5 py-4 font-semibold text-slate-900 dark:text-white whitespace-nowrap">
                         {fullName}

@@ -760,16 +760,16 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
                     </div>
 
                     {pending ? (
-                      <span className="text-[11px] font-bold text-teal-800 dark:text-teal-300 bg-teal-100 dark:bg-teal-950/70 px-2 py-0.5 rounded shrink-0">
+                      <span className="text-[11px] font-semibold text-[#0F766E] dark:text-teal-400 shrink-0">
                         {isAr ? 'جاهز للرفع' : 'Ready'}
                       </span>
                     ) : existing ? (
-                      <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
+                      <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1 shrink-0">
                         <FileCheck className="w-3.5 h-3.5" />
                         {isAr ? 'تم الرفع' : 'Uploaded'}
                       </span>
                     ) : (
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded shrink-0">
+                      <span className="text-[11px] text-slate-400 dark:text-slate-500 shrink-0">
                         {isAr ? 'غير مرفق' : 'Empty'}
                       </span>
                     )}
@@ -807,7 +807,7 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
                             storagePath: existing.storage_path,
                           })
                         }
-                        className="flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 text-xs font-semibold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 rounded-lg hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:border-[#0F766E] hover:text-[#0F766E] dark:hover:text-teal-300 transition-colors cursor-pointer shadow-xs"
                         title={isAr ? 'معاينة آمنة برابط مشفر' : 'Secure preview'}
                       >
                         <Eye className="w-4 h-4" />
