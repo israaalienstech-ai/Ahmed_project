@@ -226,7 +226,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {isAr ? 'إدارة السجلات والتنبيهات' : 'Records & Expiry Tracking'}
+            {isAr ? 'سجلات' : 'Records'}
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {isAr
@@ -370,16 +370,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onAddNew, onEdit }
       <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] p-4 shadow-xs space-y-3">
         <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-            {/* Search Input (Name, Civil ID, Passport Number) */}
+            {/* Search Input (Name, Civil ID / Unique Number, Passport Number) */}
             <div className="relative flex-1 min-w-[240px]">
               <input
+                id="dashboard-search-input"
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                aria-label={
+                  isAr
+                    ? 'البحث بالاسم أو الرقم المميز أو رقم جواز السفر'
+                    : 'Search by name, Civil ID, or passport number'
+                }
                 placeholder={
                   isAr
-                    ? 'بحث بالاسم أو الرقم المدني أو رقم جواز السفر...'
-                    : 'Search by name, Civil ID, or passport number...'
+                    ? 'بحث بالاسم أو الرقم المميز / المدني أو جواز السفر...'
+                    : 'Search by name, Civil ID / unique number, or passport...'
                 }
                 className="w-full min-h-[44px] ps-10 pe-9 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm focus:bg-white dark:focus:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E] focus:border-[#0F766E] transition-all"
               />

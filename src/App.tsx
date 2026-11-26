@@ -50,7 +50,7 @@ function parseCurrentRoute(): AppRoute {
     const id = pathname.replace('/records/', '').trim();
     if (id) return { path: 'record_edit', id };
   }
-  if (pathname === '/notifications') return { path: 'notifications' };
+  if (pathname === '/notifications' || pathname === '/notification') return { path: 'notifications' };
   return { path: 'records' };
 }
 
@@ -179,7 +179,7 @@ function MainAppContent() {
 
     runAutomaticChecks();
 
-    const intervalId = window.setInterval(runAutomaticChecks, 10 * 60 * 1000);
+    const intervalId = window.setInterval(runAutomaticChecks, 2 * 60 * 60 * 1000);
     const handlePrefEnabled = () => {
       if (isDeviceNotificationsEnabled()) {
         runAutomaticChecks();

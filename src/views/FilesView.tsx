@@ -81,7 +81,7 @@ const SUGGESTED_FILE_TYPES_AR = [
   'عقد إيجار',
   'شهادة',
   'وثيقة تأمين',
-  'اعتماد توقيع',
+  'إذن العمل PAM',
   'مستند رسمي',
 ];
 
@@ -90,7 +90,7 @@ const SUGGESTED_FILE_TYPES_EN = [
   'Lease Contract',
   'Certificate',
   'Insurance Policy',
-  'Signatory Auth',
+  'Work Permit (PAM)',
   'Official Document',
 ];
 
@@ -393,10 +393,9 @@ export const FilesView: React.FC = () => {
           : [...prev, savedRow]
       );
 
+      // Always run Edge Function 30-day check in background whenever a file is added/updated
       const is30DaysLeft = computeKuwaitDaysLeft(expiryDate) === 30;
-      if (is30DaysLeft) {
-        void triggerAutomaticExpiryCheck({ lang, forceCheck: true });
-      }
+      void triggerAutomaticExpiryCheck({ lang, forceCheck: true });
 
       setFormOpen(false);
       setToastMessage(

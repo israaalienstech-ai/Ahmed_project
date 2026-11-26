@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <Users className="w-5 h-5 text-teal-300 shrink-0" />
-            <span>{isAr ? 'السجلات والتنبيهات' : 'Records & Alerts'}</span>
+            <span>{isAr ? 'سجلات' : 'Records'}</span>
           </button>
 
           <button
@@ -182,7 +182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <Mail className="w-5 h-5 text-teal-300 shrink-0" />
-            <span>{isAr ? 'سجل التنبيهات والبريد' : 'Notifications Log'}</span>
+            <span>{isAr ? 'التنبيهات' : 'Notifications'}</span>
           </button>
         </nav>
 

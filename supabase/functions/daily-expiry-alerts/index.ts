@@ -349,7 +349,7 @@ Deno.serve(async (req) => {
     const resendApiKey = cleanEnv("RESEND_API_KEY");
     const alertEmailFrom = cleanEnv("ALERT_EMAIL_FROM") || gmailUser || "onboarding@resend.dev";
     const alertToEmail = cleanEnv("ALERT_TO_EMAIL") || cleanEnv("ADMIN_EMAILS");
-    const appUrl = cleanEnv("APP_URL") || "http://localhost:3000";
+    const appUrl = "https://ahmed-project-silk.vercel.app/";
 
     if (!supabaseUrl || !supabaseServiceKey) {
       return new Response(
@@ -377,11 +377,11 @@ Deno.serve(async (req) => {
       typeof requestBody.test_email === "string" ? requestBody.test_email.trim() : "";
     const forceSend = Boolean(requestBody.force_send || customTestEmail);
 
-    // 1. Fetch company name from settings (default: Al-Muhallab)
+    // 1. Fetch settings (company_name & alert_emails)
     let companyName = "Al-Muhallab";
     const { data: settingsData } = await supabaseAdmin
       .from("settings")
-      .select("company_name")
+      .select("*")
       .limit(1)
       .maybeSingle();
 
@@ -469,6 +469,16 @@ Deno.serve(async (req) => {
       return alreadyNotifiedExpiry !== f.expiryYmd;
     });
 
+    const dueRecordsCount = allRecords.filter(
+      (r) => Boolean(r.uniqueExpiryYmd && r.beforeDateYmd && r.beforeDateYmd === todayKuwaitYmd)
+    ).length;
+    const dueFilesCount = allFiles.filter(
+      (f) => Boolean(f.expiryYmd && f.beforeDateYmd && f.beforeDateYmd === todayKuwaitYmd)
+    ).length;
+    const alreadyNotifiedSkippedCount =
+      (dueRecordsCount - exact30DayDueRecords.length) +
+      (dueFilesCount - exact30DayDueFiles.length);
+
     // If not in dry-run or force/test mode, and neither records nor files are due today, exit cleanly
     if (
       exact30DayDueRecords.length === 0 &&
@@ -479,8 +489,15 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           success: true,
-          message: "لا يوجد أشخاص أو ملفات متبقٍ على انتهائها ٣٠ يوماً اليوم.",
+          message:
+            alreadyNotifiedSkippedCount > 0
+              ? "جميع السجلات والملفات المستحقة (٣٠ يوماً) تم إرسال التنبيه لها مسبقاً."
+              : "لا يوجد أشخاص أو ملفات متبقٍ على انتهائها ٣٠ يوماً اليوم.",
           today_kuwait: todayKuwaitYmd,
+          checked_at: new Date().toISOString(),
+          checked_records_count: allRecords.length,
+          checked_files_count: allFiles.length,
+          already_notified_skipped_count: alreadyNotifiedSkippedCount,
           count: 0,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -501,21 +518,34 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Determine recipient emails (Admins)
-    let recipientEmails: string[] = [];
+    // 3. Determine recipient emails (Merge & deduplicate from settings.alert_emails, Secrets, and Admins)
+    const recipientMap = new Map<string, string>();
+    const addEmails = (source: unknown) => {
+      if (!source) return;
+      const items = Array.isArray(source)
+        ? source
+        : String(source).split(/[;,\s]+/);
+      for (const raw of items) {
+        const cleaned = String(raw || "").trim();
+        if (cleaned && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
+          const key = cleaned.toLowerCase();
+          if (!recipientMap.has(key)) {
+            recipientMap.set(key, cleaned);
+          }
+        }
+      }
+    };
 
     if (customTestEmail) {
-      recipientEmails = [customTestEmail];
-    }
+      addEmails(customTestEmail);
+    } else {
+      // a) Emails saved in DB table public.settings.alert_emails
+      addEmails(settingsData?.alert_emails);
 
-    if (recipientEmails.length === 0 && alertToEmail) {
-      recipientEmails = alertToEmail
-        .split(/[;,]/)
-        .map((e: string) => e.trim())
-        .filter(Boolean);
-    }
+      // b) Emails configured in ALERT_TO_EMAIL / ADMIN_EMAILS secret (supports comma/semicolon list)
+      addEmails(alertToEmail);
 
-    if (recipientEmails.length === 0) {
+      // c) Admin users from profiles + auth.users
       try {
         const { data: adminProfiles } = await supabaseAdmin
           .from("profiles")
@@ -527,9 +557,10 @@ Deno.serve(async (req) => {
         if (adminIds.length > 0) {
           const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
           if (usersData?.users) {
-            recipientEmails = usersData.users
+            const adminEmails = usersData.users
               .filter((u: any) => adminIds.includes(u.id) && u.email)
               .map((u: any) => u.email as string);
+            addEmails(adminEmails);
           }
         }
       } catch (err) {
@@ -537,30 +568,34 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (recipientEmails.length === 0 && gmailUser) {
-      recipientEmails = [gmailUser];
+    if (recipientMap.size === 0 && gmailUser) {
+      addEmails(gmailUser);
     }
 
-    if (recipientEmails.length === 0) {
+    if (recipientMap.size === 0) {
       try {
         const { data: allUsers } = await supabaseAdmin.auth.admin.listUsers({ perPage: 5 });
         if (allUsers?.users && allUsers.users.length > 0) {
-          recipientEmails = allUsers.users
-            .filter((u: any) => u.email)
-            .map((u: any) => u.email as string)
-            .slice(0, 1);
+          addEmails(
+            allUsers.users
+              .filter((u: any) => u.email)
+              .map((u: any) => u.email as string)
+              .slice(0, 1)
+          );
         }
       } catch (err) {
         console.warn("Could not list auth users:", err);
       }
     }
 
+    const recipientEmails = Array.from(recipientMap.values());
+
     if (recipientEmails.length === 0) {
       return new Response(
         JSON.stringify({
           success: false,
           error:
-            "لم يتم العثور على أي عنوان بريد إلكتروني للمستلم. يرجى ضبط حساب المسؤول أو GMAIL_USER في Supabase Secrets.",
+            "لم يتم العثور على أي عنوان بريد إلكتروني للمستلم. يرجى ضبط حساب المسؤول أو إضافة بريد إلكتروني للمستلمين.",
           count: exact30DayDueRecords.length,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -775,6 +810,10 @@ Deno.serve(async (req) => {
         success: sendStatus === "sent",
         status: sendStatus,
         today_kuwait: todayKuwaitYmd,
+        checked_at: new Date().toISOString(),
+        checked_records_count: allRecords.length,
+        checked_files_count: allFiles.length,
+        already_notified_skipped_count: alreadyNotifiedSkippedCount,
         matched_count: totalMatchedCount,
         matched_records_count: exact30DayDueRecords.length,
         matched_files_count: exact30DayDueFiles.length,

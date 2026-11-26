@@ -68,10 +68,10 @@ const DOC_SLOTS: DocSlotConfig[] = [
   },
   {
     type: 'pam',
-    labelAr: 'اعتماد التوقيع (PAM)',
-    labelEn: 'Work Permit / PAM',
-    descAr: 'شهادة اعتماد التوقيع أو إذن العمل',
-    descEn: 'Authorized signatory or work permit certificate',
+    labelAr: 'إذن العمل PAM',
+    labelEn: 'Work Permit (PAM)',
+    descAr: 'صورة أو مستند إذن العمل PAM',
+    descEn: 'Work permit (PAM) document',
   },
 ];
 
@@ -373,11 +373,9 @@ export const RecordFormView: React.FC<RecordFormViewProps> = ({
         }
       }
 
-      // 4. Fire 30-day automatic email/notification check in background (never block save UI)
+      // 4. Always run Edge Function 30-day check in background whenever a record is saved/added
       const is30DaysLeft = computeKuwaitDaysLeft(civilIdExpiry) === 30;
-      if (is30DaysLeft) {
-        void triggerAutomaticExpiryCheck({ lang, forceCheck: true });
-      }
+      void triggerAutomaticExpiryCheck({ lang, forceCheck: true });
 
       setSuccessToast(
         (isEditing

@@ -6,9 +6,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Mail,
-  Send,
   RefreshCw,
-  Eye,
+  FileBarChart2,
   CheckCircle2,
   AlertTriangle,
   Clock,
@@ -16,31 +15,20 @@ import {
   FileSpreadsheet,
   MessageCircle,
   User,
-  Bell,
-  BellRing,
   Search,
   Filter,
   X,
+  Plus,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { usePreferences } from '../context/PreferencesContext';
-import { ManagedFileItem, NotificationLogItem, RecordItem } from '../types';
+import { NotificationLogItem } from '../types';
 import { formatKuwaitDate } from '../utils/date';
 import { translateErrorMessage } from '../utils/errors';
-import {
-  buildExpiryAlertMessage,
-  computeKuwaitDaysLeft,
-  filterExact30DayCivilIdRecords,
-  filterExact30DayFiles,
-  getDeviceNotificationPermission,
-  isDeviceNotificationsEnabled,
-  isRunningInIframe,
-  NOTIF_PREF_EVENT,
-  requestDeviceNotificationPermission,
-  setDeviceNotificationsEnabled,
-  showDeviceNotification,
-} from '../utils/deviceNotifications';
+import { QuickReportModal } from '../components/QuickReportModal';
 
 export const NotificationsView: React.FC = () => {
   const { isAdmin, companyName } = useAuth();
@@ -51,25 +39,24 @@ export const NotificationsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [triggering, setTriggering] = useState(false);
-  const [triggerResult, setTriggerResult] = useState<{
-    success: boolean;
-    message: string;
-    warning?: string;
-  } | null>(null);
-
-  const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [quickReportOpen, setQuickReportOpen] = useState(false);
+  const [emailsModalOpen, setEmailsModalOpen] = useState(false);
 
   const [logSearchTerm, setLogSearchTerm] = useState('');
   const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'sent' | 'failed'>('all');
   const [logChannelFilter, setLogChannelFilter] = useState<'all' | 'email' | 'whatsapp'>('all');
-  const [devicePermission, setDevicePermission] = useState<NotificationPermission | 'unsupported'>(() =>
-    getDeviceNotificationPermission()
-  );
-  const [deviceNotifOn, setDeviceNotifOn] = useState<boolean>(() => isDeviceNotificationsEnabled());
-  const [sendingDeviceTest, setSendingDeviceTest] = useState(false);
+
+  // Additional Email Recipients state (stored in settings.alert_emails)
+  const [settingsRowId, setSettingsRowId] = useState<string | null>(null);
+  const [alertEmails, setAlertEmails] = useState<string[]>([]);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [savingEmails, setSavingEmails] = useState(false);
+  const [emailsFeedback, setEmailsFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [missingAlertEmailsCol, setMissingAlertEmailsCol] = useState(false);
+  const [copiedEmailsSql, setCopiedEmailsSql] = useState(false);
+
+  const ALERT_EMAILS_SQL = `alter table public.settings
+  add column if not exists alert_emails text[] not null default '{}';`;
 
   const fetchLogs = useCallback(async () => {
     setLoading(true);
@@ -111,141 +98,175 @@ export const NotificationsView: React.FC = () => {
     }
   }, [lang]);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  const fetchAlertEmails = useCallback(async () => {
+    try {
+      const { data, error: settingsErr } = await supabase
+        .from('settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
 
-  useEffect(() => {
-    const sync = () => {
-      setDevicePermission(getDeviceNotificationPermission());
-      setDeviceNotifOn(isDeviceNotificationsEnabled());
-    };
-    window.addEventListener(NOTIF_PREF_EVENT, sync);
-    return () => window.removeEventListener(NOTIF_PREF_EVENT, sync);
+      if (settingsErr) {
+        console.warn('settings fetch error:', settingsErr);
+        return;
+      }
+
+      if (data) {
+        if (data.id) setSettingsRowId(String(data.id));
+        const raw = (data as Record<string, unknown>).alert_emails;
+        if (raw === undefined) {
+          // Column might exist as null or not exist in schema
+          if (!('alert_emails' in (data as Record<string, unknown>))) {
+            setMissingAlertEmailsCol(true);
+          }
+          setAlertEmails([]);
+        } else {
+          setMissingAlertEmailsCol(false);
+          const parsed = Array.isArray(raw)
+            ? raw.map((e) => String(e).trim()).filter(Boolean)
+            : String(raw || '')
+                .split(/[;,\s]+/)
+                .map((e) => e.trim())
+                .filter(Boolean);
+          setAlertEmails(parsed);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load alert_emails:', err);
+    }
   }, []);
 
-  const handleTriggerAlerts = async (isDryRun = false) => {
-    setTriggering(true);
-    setTriggerResult(null);
+  useEffect(() => {
+    fetchLogs();
+    fetchAlertEmails();
+  }, [fetchLogs, fetchAlertEmails]);
 
+  const persistAlertEmails = async (nextList: string[]) => {
+    setSavingEmails(true);
+    setEmailsFeedback(null);
     try {
-      const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
-        body: {
-          dry_run: isDryRun,
-          force_send: true,
-        },
-      });
-
-      if (fnErr) {
-        throw fnErr;
-      }
-
-      if (isDryRun && data?.html_preview) {
-        setPreviewHtml(data.html_preview);
-        setPreviewModalOpen(true);
-      }
-
-      const recipientsList = data?.recipients?.length
-        ? ` (${isAr ? 'إلى' : 'To'}: ${data.recipients.join(', ')})`
-        : '';
-
-      // Mirror the exact same message as an OS notification on desktop/phone if enabled
-      if (!isDryRun && isDeviceNotificationsEnabled() && data?.notification_payload) {
-        await showDeviceNotification({
-          title: data.notification_payload.title,
-          body: data.notification_payload.body,
-          url: '/notifications',
-          dir: isAr ? 'rtl' : 'ltr',
-          lang,
-        });
-      }
-
-      setTriggerResult({
-        success: data?.success ?? true,
-        message:
-          (data?.message ||
-            (isAr ? 'تم فحص وإرسال التنبيه بنجاح.' : 'Alert check and send completed.')) +
-          recipientsList,
-        warning: data?.warning,
-      });
-
-      await fetchLogs();
-    } catch (err: any) {
-      console.error('Edge Function trigger error:', err);
-      setTriggerResult({
-        success: false,
-        message: translateErrorMessage(err, lang),
-      });
-    } finally {
-      setTriggering(false);
-    }
-  };
-
-  const handleEnableDeviceNotifications = async () => {
-    const perm = await requestDeviceNotificationPermission();
-    setDevicePermission(perm);
-    const enabled = perm === 'granted';
-    setDeviceNotifOn(enabled);
-    if (enabled) {
-      await handleSendTestDeviceNotification();
-    }
-  };
-
-  const handleToggleDevicePref = () => {
-    const next = !deviceNotifOn;
-    setDeviceNotificationsEnabled(next);
-    setDeviceNotifOn(next);
-  };
-
-  const handleSendTestDeviceNotification = async () => {
-    setSendingDeviceTest(true);
-    try {
-      if (getDeviceNotificationPermission() !== 'granted') {
-        const perm = await requestDeviceNotificationPermission();
-        setDevicePermission(perm);
-        if (perm !== 'granted') {
-          setSendingDeviceTest(false);
-          return;
+      const writeRow = async (value: string[] | string) => {
+        if (settingsRowId) {
+          return supabase
+            .from('settings')
+            .update({ alert_emails: value })
+            .eq('id', settingsRowId);
         }
-        setDeviceNotifOn(true);
+        return supabase
+          .from('settings')
+          .insert({
+            company_name: companyName || 'Al-Muhallab',
+            alert_emails: value,
+          })
+          .select('id')
+          .maybeSingle();
+      };
+
+      let res = await writeRow(nextList);
+
+      // Fallback if alert_emails column in DB is text instead of text[]
+      if (
+        res.error &&
+        String(res.error.message || '').toLowerCase().includes('malformed array literal')
+      ) {
+        res = await writeRow(nextList.join(', '));
       }
 
-      const { data: recs } = await supabase.from('records_with_status').select('*');
-      const allRecords = (recs || []) as RecordItem[];
-      const exact30 = filterExact30DayCivilIdRecords(allRecords);
-      const fallbackUpcoming = allRecords.filter(
-        (r) =>
-          typeof r.unique_number_days_left === 'number' &&
-          r.unique_number_days_left >= 0 &&
-          r.unique_number_days_left <= 30
-      );
-
-      let matchedFiles: ManagedFileItem[] = [];
-      try {
-        const { data: filesData } = await supabase.from('managed_files').select('*');
-        const allFiles = (filesData || []) as ManagedFileItem[];
-        const exactFiles = filterExact30DayFiles(allFiles);
-        const upcomingFiles = allFiles.filter((f) => {
-          const d = computeKuwaitDaysLeft(f.expiry_date);
-          return d !== null && d >= 0 && d <= 30;
-        });
-        matchedFiles = exactFiles.length > 0 ? exactFiles : upcomingFiles;
-      } catch {
-        // managed_files table may not be created yet
+      if (res.error) {
+        const msg = String(res.error.message || '').toLowerCase();
+        const code = (res.error as { code?: string }).code || '';
+        if (
+          code === '42703' ||
+          code === 'PGRST204' ||
+          (msg.includes('alert_emails') && (msg.includes('column') || msg.includes('schema cache')))
+        ) {
+          setMissingAlertEmailsCol(true);
+          setEmailsFeedback({
+            type: 'error',
+            text: isAr
+              ? 'يرجى تنفيذ كود SQL الظاهر أدناه في Supabase SQL Editor لتفعيل حفظ قائمة الإيميلات.'
+              : 'Please run the SQL below in Supabase SQL Editor to enable saving recipient emails.',
+          });
+          return false;
+        }
+        throw res.error;
       }
 
-      const targetRecords = exact30.length > 0 ? exact30 : fallbackUpcoming;
-      const payload = buildExpiryAlertMessage(
-        targetRecords,
-        companyName || 'Al-Muhallab',
-        lang,
-        matchedFiles
-      );
-      await showDeviceNotification(payload);
+      if (!settingsRowId && res.data && typeof res.data === 'object' && 'id' in res.data) {
+        setSettingsRowId(String((res.data as { id: string }).id));
+      }
+
+      setMissingAlertEmailsCol(false);
+      setAlertEmails(nextList);
+      setEmailsFeedback({
+        type: 'success',
+        text: isAr
+          ? 'تم تحديث قائمة مستلمي البريد بنجاح.'
+          : 'Recipient email list updated successfully.',
+      });
+      return true;
+    } catch (err: any) {
+      setEmailsFeedback({
+        type: 'error',
+        text: translateErrorMessage(err, lang),
+      });
+      return false;
     } finally {
-      setSendingDeviceTest(false);
+      setSavingEmails(false);
     }
   };
+
+  const handleAddRecipientEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailsFeedback(null);
+    const candidates = newEmailInput
+      .split(/[;,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (candidates.length === 0) {
+      setEmailsFeedback({
+        type: 'error',
+        text: isAr ? 'يرجى إدخال عنوان بريد إلكتروني صحيح.' : 'Please enter a valid email address.',
+      });
+      return;
+    }
+
+    const invalid = candidates.find((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    if (invalid) {
+      setEmailsFeedback({
+        type: 'error',
+        text: isAr
+          ? `صيغة البريد الإلكتروني غير صحيحة: ${invalid}`
+          : `Invalid email address: ${invalid}`,
+      });
+      return;
+    }
+
+    const existingLower = new Set(alertEmails.map((em) => em.toLowerCase()));
+    const toAdd = candidates.filter((em) => !existingLower.has(em.toLowerCase()));
+    if (toAdd.length === 0) {
+      setEmailsFeedback({
+        type: 'error',
+        text: isAr ? 'هذا البريد مضاف بالفعل في القائمة.' : 'This email is already in the list.',
+      });
+      return;
+    }
+
+    const ok = await persistAlertEmails([...alertEmails, ...toAdd]);
+    if (ok) {
+      setNewEmailInput('');
+    }
+  };
+
+  const handleRemoveRecipientEmail = async (emailToRemove: string) => {
+    const nextList = alertEmails.filter(
+      (em) => em.toLowerCase() !== emailToRemove.toLowerCase()
+    );
+    await persistAlertEmails(nextList);
+  };
+
+
 
   const filteredLogs = React.useMemo(() => {
     const query = logSearchTerm.toLowerCase().trim();
@@ -268,80 +289,33 @@ export const NotificationsView: React.FC = () => {
     });
   }, [logs, logSearchTerm, logStatusFilter, logChannelFilter]);
 
-  const handlePreviewEmail = async () => {
-    setPreviewLoading(true);
-    setPreviewModalOpen(true);
-    setPreviewHtml(null);
+  const emailStatusSummary = React.useMemo(() => {
+    const emailLogs = logs.filter((l) => l.channel === 'email');
+    const sentCount = emailLogs.filter((l) => l.status === 'sent').length;
+    const failedCount = emailLogs.filter((l) => l.status === 'failed').length;
+    const latestEmailLog = emailLogs[0] || null;
 
-    try {
-      const { data, error: fnErr } = await supabase.functions.invoke('daily-expiry-alerts', {
-        body: { dry_run: true },
-      });
-
-      if (!fnErr && data?.html_preview) {
-        setPreviewHtml(data.html_preview);
-      } else {
-        const { data: recs } = await supabase.from('records_with_status').select('*');
-        const records = recs || [];
-        const exact30 = records.filter((r: any) => r.unique_number_days_left === 30);
-        const upcoming = records.filter(
-          (r: any) =>
-            typeof r.unique_number_days_left === 'number' &&
-            r.unique_number_days_left >= 0 &&
-            r.unique_number_days_left <= 30
-        );
-
-        const targetList = exact30.length > 0 ? exact30 : upcoming;
-        const rowsList = targetList
-          .map(
-            (r: any) => `
-            <li style="padding: 10px 14px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center;">
-              <span style="font-weight: 700; color: #0F172A;">${r.full_name || r.name || '—'}</span>
-              <span style="font-size: 12px; color: #92400E; background: #FEF3C7; padding: 3px 10px; border-radius: 6px;">
-                ${
-                  isAr
-                    ? `متبقٍ ${r.unique_number_days_left ?? 30} يوماً على انتهاء الرقم المدني`
-                    : `${r.unique_number_days_left ?? 30} days left on Civil ID`
-                }
-              </span>
-            </li>
-          `
-          )
-          .join('');
-
-        const fallbackHtml = `
-          <div style="font-family: 'IBM Plex Sans Arabic', 'Nunito Sans', Tahoma, sans-serif; direction: ${isAr ? 'rtl' : 'ltr'}; padding: 24px; color: #0F172A;">
-            <div style="background: #0B3B38; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
-              <h2 style="margin: 0; font-size: 20px;">${companyName || 'Al-Muhallab'}</h2>
-              <p style="margin: 6px 0 0; font-size: 13px; color: #A7F3D0;">${
-                isAr
-                  ? 'الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً'
-                  : 'People with 30 days left before Civil ID expiry'
-              }</p>
-            </div>
-            ${
-              targetList.length > 0
-                ? `<ul style="list-style: none; padding: 0; margin: 0; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden;">${rowsList}</ul>`
-                : `<p style="color: #166534; background: #F0FDF4; padding: 14px; border-radius: 8px; border: 1px solid #BBF7D0;">${
-                    isAr
-                      ? 'لا يوجد أشخاص متبقٍ على انتهاء رقمهم المدني ٣٠ يوماً حالياً.'
-                      : 'No people currently have 30 days left before Civil ID expiry.'
-                  }</p>`
-            }
-          </div>
-        `;
-        setPreviewHtml(fallbackHtml);
-      }
-    } catch (err: any) {
-      setPreviewHtml(
-        `<p style="color: red; padding: 20px;">${
-          isAr ? 'تعذر تحميل المعاينة:' : 'Failed to load preview:'
-        } ${err.message}</p>`
-      );
-    } finally {
-      setPreviewLoading(false);
+    if (latestEmailLog) {
+      return {
+        state: latestEmailLog.status as 'sent' | 'failed',
+        reason:
+          latestEmailLog.status === 'failed'
+            ? latestEmailLog.error || (isAr ? 'حدث خطأ أثناء إرسال البريد.' : 'Email delivery error.')
+            : null,
+        sentAt: latestEmailLog.sent_at,
+        sentCount,
+        failedCount,
+      };
     }
-  };
+
+    return {
+      state: 'idle' as const,
+      reason: null,
+      sentAt: null,
+      sentCount: 0,
+      failedCount: 0,
+    };
+  }, [logs, isAr]);
 
   return (
     <div className="space-y-6">
@@ -349,12 +323,12 @@ export const NotificationsView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {isAr ? 'سجل الإشعارات والتنبيهات' : 'Notifications & Email Log'}
+            {isAr ? 'التنبيهات' : 'Notifications'}
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             {isAr
-              ? 'سجل التنبيهات المرسلة قبل انتهاء صلاحية الرقم المدني بـ ٣٠ يوماً وحالة الإرسال'
-              : 'History of Civil ID alerts sent 30 days before expiry'}
+              ? 'سجل التنبيهات المرسلة والتقارير السريعة لحالة السجلات'
+              : 'Sent notifications log and quick status reports'}
           </p>
         </div>
 
@@ -371,34 +345,30 @@ export const NotificationsView: React.FC = () => {
 
           <button
             type="button"
-            onClick={handlePreviewEmail}
+            onClick={() => setQuickReportOpen(true)}
             className="flex items-center gap-1.5 min-h-[44px] px-4 py-2 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-xl transition-colors cursor-pointer"
           >
-            <Eye className="w-4 h-4" />
-            <span>{isAr ? 'معاينة القالب' : 'Preview Template'}</span>
+            <FileBarChart2 className="w-4 h-4" />
+            <span>{isAr ? 'ريبورت سريع' : 'Quick Report'}</span>
           </button>
 
           {isAdmin && (
             <button
               type="button"
-              onClick={() => handleTriggerAlerts(false)}
-              disabled={triggering}
-              className="flex items-center gap-2 min-h-[44px] px-5 py-2.5 bg-[#0F766E] hover:bg-teal-800 text-white font-bold text-sm rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-50"
-              title={isAr ? 'اختبار فحص وإرسال تنبيه ٣٠ يوماً للمسؤولين' : 'Test alert check & send'}
+              onClick={() => setEmailsModalOpen(true)}
+              className="flex items-center gap-1.5 min-h-[44px] px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-[#E2E8F0] dark:border-slate-800 rounded-xl transition-colors shadow-xs cursor-pointer"
+              title={isAr ? 'إدارة إيميلات مستلمي التنبيهات' : 'Manage alert recipient emails'}
             >
-              {triggering ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>{isAr ? 'جاري الفحص والإرسال...' : 'Sending...'}</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  <span>{isAr ? 'اختبار التنبيه (Test)' : 'Test Alert'}</span>
-                </>
+              <Mail className="w-4 h-4 text-[#0F766E] dark:text-teal-400" />
+              <span>{isAr ? 'مستلمو البريد' : 'Recipients'}</span>
+              {alertEmails.length > 0 && (
+                <span className="px-1.5 py-0.5 text-[10px] font-mono bg-teal-50 dark:bg-teal-950/70 text-[#0F766E] dark:text-teal-300 rounded">
+                  {alertEmails.length}
+                </span>
               )}
             </button>
           )}
+
         </div>
       </div>
 
@@ -417,144 +387,72 @@ export const NotificationsView: React.FC = () => {
         </div>
       )}
 
-      {/* Result feedback notification */}
-      {triggerResult && (
-        <div
-          className={`flex items-start gap-3 p-4 rounded-xl border text-sm ${
-            triggerResult.success
-              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
-              : 'bg-red-50 dark:bg-red-950/50 text-red-900 dark:text-red-200 border-red-200 dark:border-red-800'
-          }`}
-        >
-          {triggerResult.success ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          ) : (
-            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-          )}
-          <div className="flex-1 space-y-1">
-            <p className="font-bold">{triggerResult.message}</p>
-            {triggerResult.warning && <p className="text-xs opacity-90">{triggerResult.warning}</p>}
+      {/* Visual Email Delivery Status Indicator */}
+      <div
+        className={`flex flex-col md:flex-row md:items-center justify-between gap-3 px-4 py-3.5 rounded-xl border shadow-xs transition-colors ${
+          emailStatusSummary.state === 'sent'
+            ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-950 dark:text-emerald-100'
+            : emailStatusSummary.state === 'failed'
+            ? 'bg-red-50/90 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-950 dark:text-red-100'
+            : 'bg-white dark:bg-slate-900 border-[#E2E8F0] dark:border-slate-800 text-slate-700 dark:text-slate-200'
+        }`}
+      >
+        <div className="flex items-start sm:items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                emailStatusSummary.state === 'sent'
+                  ? 'bg-emerald-500 ring-4 ring-emerald-500/20'
+                  : emailStatusSummary.state === 'failed'
+                  ? 'bg-red-500 ring-4 ring-red-500/20'
+                  : 'bg-slate-400 ring-4 ring-slate-400/20'
+              }`}
+            />
+            {emailStatusSummary.state === 'sent' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : emailStatusSummary.state === 'failed' ? (
+              <XCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+            ) : (
+              <Mail className="w-5 h-5 text-slate-400 shrink-0" />
+            )}
+            <span className="text-xs sm:text-sm font-bold">
+              {emailStatusSummary.state === 'sent'
+                ? isAr
+                  ? 'حالة البريد الإلكتروني: تم الإرسال بنجاح'
+                  : 'Email Status: Sent Successfully'
+                : emailStatusSummary.state === 'failed'
+                ? isAr
+                  ? 'حالة البريد الإلكتروني: فشل الإرسال'
+                  : 'Email Status: Failed to Send'
+                : isAr
+                ? 'حالة البريد الإلكتروني: لا توجد محاولات إرسال مسجلة بعد'
+                : 'Email Status: No deliveries recorded yet'}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={() => setTriggerResult(null)}
-            className="text-xs font-bold underline hover:no-underline cursor-pointer"
-          >
-            {isAr ? 'إغلاق' : 'Dismiss'}
-          </button>
-        </div>
-      )}
 
-      {/* Device Notifications Card (Desktop & Mobile PWA Sync) */}
-      <div className="bg-white dark:bg-slate-900 border border-[#E2E8F0] dark:border-slate-800 rounded-[12px] p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-start gap-3.5">
-          <div
-            className={`p-3 rounded-xl shrink-0 ${
-              deviceNotifOn
-                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400'
-                : 'bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-400'
-            }`}
-          >
-            {deviceNotifOn ? <BellRing className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                {isAr
-                  ? 'إشعارات الجهاز (الكمبيوتر والهاتف)'
-                  : 'Device Notifications (Desktop & Mobile)'}
-              </h3>
-              <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                  devicePermission === 'unsupported'
-                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                    : devicePermission === 'denied'
-                    ? 'bg-red-100 dark:bg-red-950/70 text-red-800 dark:text-red-300'
-                    : deviceNotifOn
-                    ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
-                }`}
-              >
-                {devicePermission === 'unsupported'
-                  ? isAr
-                    ? 'غير مدعوم في هذا المتصفح'
-                    : 'Not Supported'
-                  : devicePermission === 'denied'
-                  ? isAr
-                    ? 'محظور من إعدادات المتصفح'
-                    : 'Blocked in Browser'
-                  : deviceNotifOn
-                  ? isAr
-                    ? 'مفعلة ومتزامنة'
-                    : 'Active & Synced'
-                  : isAr
-                  ? 'غير مفعلة'
-                  : 'Disabled'}
+          {emailStatusSummary.state === 'failed' && emailStatusSummary.reason && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-100/90 dark:bg-red-900/60 border border-red-300 dark:border-red-700 text-xs font-semibold text-red-900 dark:text-red-100">
+              <span>{isAr ? 'سبب الفشل:' : 'Reason:'}</span>
+              <span>{emailStatusSummary.reason}</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 text-xs shrink-0">
+          {(emailStatusSummary.sentCount > 0 || emailStatusSummary.failedCount > 0) && (
+            <div className="flex items-center gap-2 font-mono">
+              <span className="px-2 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 font-bold">
+                {isAr ? `ناجح: ${emailStatusSummary.sentCount}` : `Sent: ${emailStatusSummary.sentCount}`}
+              </span>
+              <span className="px-2 py-0.5 rounded bg-red-100/80 dark:bg-red-950/70 text-red-800 dark:text-red-300 font-bold">
+                {isAr ? `فاشل: ${emailStatusSummary.failedCount}` : `Failed: ${emailStatusSummary.failedCount}`}
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-              {isAr
-                ? 'تصلك نفس رسالة البريد الإلكتروني كإشعار مباشر على الكمبيوتر أو الهاتف عند تثبيت التطبيق كأيقونة (على الآيفون: أضفه أولاً للشاشة الرئيسية).'
-                : 'Receives the exact same email alert message as a native notification on desktop or phone when installed as an app icon.'}
-            </p>
-            {isRunningInIframe() && devicePermission !== 'granted' && (
-              <p className="text-[11px] text-amber-700 dark:text-amber-300 font-semibold mt-1">
-                {isAr
-                  ? 'تنبيه: المتصفح يمنع إشعارات النظام داخل نافذة المعاينة (iframe). افتح الرابط في تبويب مستقل أو ثبّت التطبيق كأيقونة لتظهر الإشعارات.'
-                  : 'Note: Browsers block notification prompts inside embedded iframes. Open the app URL in its own tab or install it as an app icon.'}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap shrink-0">
-          {devicePermission !== 'granted' ? (
-            <button
-              type="button"
-              onClick={handleEnableDeviceNotifications}
-              disabled={devicePermission === 'unsupported' || devicePermission === 'denied'}
-              className="flex items-center gap-2 min-h-[40px] px-4 py-2 text-xs font-bold text-white bg-[#0F766E] hover:bg-teal-800 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <BellRing className="w-4 h-4" />
-              <span>{isAr ? 'تفعيل إشعارات الجهاز' : 'Enable Device Alerts'}</span>
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={handleToggleDevicePref}
-                className={`min-h-[40px] px-3.5 py-2 text-xs font-bold rounded-xl border transition-colors cursor-pointer ${
-                  deviceNotifOn
-                    ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
-                }`}
-              >
-                {deviceNotifOn
-                  ? isAr
-                    ? 'إيقاف مؤقت'
-                    : 'Pause Alerts'
-                  : isAr
-                  ? 'تشغيل الإشعارات'
-                  : 'Resume Alerts'}
-              </button>
-              <button
-                type="button"
-                onClick={handleSendTestDeviceNotification}
-                disabled={sendingDeviceTest}
-                className="flex items-center gap-1.5 min-h-[40px] px-4 py-2 text-xs font-bold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <Bell className="w-4 h-4" />
-                <span>
-                  {sendingDeviceTest
-                    ? isAr
-                      ? 'جاري الإرسال...'
-                      : 'Sending...'
-                    : isAr
-                    ? 'إرسال نفس الرسالة كإشعار الآن'
-                    : 'Send Device Notification Now'}
-                </span>
-              </button>
-            </>
+          )}
+          {emailStatusSummary.sentAt && (
+            <span className="text-[11px] opacity-75 font-mono tabular-nums">
+              {formatKuwaitDate(emailStatusSummary.sentAt)}
+            </span>
           )}
         </div>
       </div>
@@ -747,23 +645,30 @@ export const NotificationsView: React.FC = () => {
                         {formatKuwaitDate(log.target_expiry)}
                       </td>
 
-                      <td className="px-5 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold ${
-                            isSuccess
-                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                              : 'bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800'
-                          }`}
-                        >
-                          {isSuccess ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                          ) : (
-                            <XCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-                          )}
-                          <span>
-                            {isSuccess ? (isAr ? 'تم الإرسال' : 'Sent') : isAr ? 'فشل' : 'Failed'}
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold shrink-0 ${
+                              isSuccess
+                                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                : 'bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800'
+                            }`}
+                          >
+                            {isSuccess ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                            ) : (
+                              <XCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                            )}
+                            <span>
+                              {isSuccess ? (isAr ? 'تم الإرسال' : 'Sent') : isAr ? 'فشل الإرسال' : 'Failed'}
+                            </span>
                           </span>
-                        </span>
+                          {!isSuccess && log.error && (
+                            <span className="text-[11px] font-semibold text-red-700 dark:text-red-300 bg-red-50/70 dark:bg-red-950/40 px-2 py-0.5 rounded border border-red-200/70 dark:border-red-900">
+                              {isAr ? `السبب: ${log.error}` : `Reason: ${log.error}`}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="px-5 py-4 text-xs text-slate-600 dark:text-slate-400 max-w-xs">
@@ -786,56 +691,141 @@ export const NotificationsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Email Preview Modal */}
-      {previewModalOpen && (
+      {/* Quick Report Modal */}
+      <QuickReportModal
+        isOpen={quickReportOpen}
+        onClose={() => setQuickReportOpen(false)}
+      />
+
+      {/* Alert Email Recipients Modal */}
+      {emailsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="w-full max-w-3xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Mail className="w-5 h-5 text-[#0F766E] dark:text-teal-400" />
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {isAr ? 'معاينة قالب البريد الإلكتروني' : 'Email Template Preview'}
+                  {isAr
+                    ? 'إيميلات مستلمي التنبيهات (أكثر من بريد)'
+                    : 'Alert Email Recipients'}
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setPreviewModalOpen(false)}
+                onClick={() => setEmailsModalOpen(false)}
                 className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto bg-slate-100 dark:bg-slate-950">
-              {previewLoading ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <RefreshCw className="w-8 h-8 animate-spin text-[#0F766E] dark:text-teal-400 mb-2" />
-                  <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">
-                    {isAr ? 'جاري تجهيز المعاينة...' : 'Loading preview...'}
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                {isAr
+                  ? 'أضف أي بريد إلكتروني إضافي هنا لتصله رسائل التنبيه تلقائياً مع بريد المسؤول الأساسي.'
+                  : 'Add any extra email addresses here so they receive expiry alert emails alongside the primary admin email.'}
+              </p>
+
+              {missingAlertEmailsCol && (
+                <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl space-y-2">
+                  <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    {isAr
+                      ? 'لتفعيل حفظ أكثر من إيميل، نفّذ هذا الأمر مرة واحدة في Supabase SQL Editor:'
+                      : 'To save multiple recipient emails, run this SQL once in Supabase SQL Editor:'}
                   </p>
+                  <div className="relative">
+                    <pre
+                      dir="ltr"
+                      className="p-2.5 rounded-lg bg-slate-900 text-emerald-300 text-xs font-mono overflow-x-auto"
+                    >
+                      {ALERT_EMAILS_SQL}
+                    </pre>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(ALERT_EMAILS_SQL);
+                        setCopiedEmailsSql(true);
+                        setTimeout(() => setCopiedEmailsSql(false), 2500);
+                      }}
+                      className="absolute top-1.5 end-1.5 flex items-center gap-1 px-2 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[11px] font-semibold cursor-pointer"
+                    >
+                      {copiedEmailsSql ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedEmailsSql ? (isAr ? 'تم النسخ' : 'Copied') : isAr ? 'نسخ' : 'Copy'}</span>
+                    </button>
+                  </div>
                 </div>
-              ) : previewHtml ? (
-                <div
-                  className="bg-white rounded-lg shadow-xs overflow-hidden"
-                  dangerouslySetInnerHTML={{ __html: previewHtml }}
+              )}
+
+              <form onSubmit={handleAddRecipientEmail} className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={newEmailInput}
+                  onChange={(e) => setNewEmailInput(e.target.value)}
+                  placeholder="name@example.com"
+                  className="flex-1 min-h-[42px] px-3.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:bg-white dark:focus:bg-slate-800 focus:outline-hidden focus:ring-2 focus:ring-[#0F766E]"
                 />
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {isAr ? 'لا توجد معاينة متاحة.' : 'No preview available.'}
+                <button
+                  type="submit"
+                  disabled={savingEmails}
+                  className="flex items-center justify-center gap-1.5 min-h-[42px] px-4 py-2 bg-[#0F766E] hover:bg-teal-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{savingEmails ? (isAr ? 'جاري الحفظ...' : 'Saving...') : isAr ? 'إضافة إيميل' : 'Add Email'}</span>
+                </button>
+              </form>
+
+              {emailsFeedback && (
+                <p
+                  className={`text-xs font-semibold ${
+                    emailsFeedback.type === 'success'
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-red-700 dark:text-red-400'
+                  }`}
+                >
+                  {emailsFeedback.text}
                 </p>
               )}
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {alertEmails.length === 0 ? (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {isAr
+                      ? 'لم تتم إضافة إيميلات إضافية بعد (يتم الإرسال حالياً لإيميلات المسؤولين المسجلة).'
+                      : 'No extra emails added yet (currently sending to registered admin emails).'}
+                  </span>
+                ) : (
+                  alertEmails.map((em) => (
+                    <span
+                      key={em}
+                      dir="ltr"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-teal-50 dark:bg-teal-950/60 text-[#0F766E] dark:text-teal-300 border border-teal-200 dark:border-teal-800"
+                    >
+                      <span>{em}</span>
+                      <button
+                        type="button"
+                        disabled={savingEmails}
+                        onClick={() => handleRemoveRecipientEmail(em)}
+                        title={isAr ? 'حذف الإيميل' : 'Remove email'}
+                        className="text-teal-700 dark:text-teal-300 hover:text-red-600 dark:hover:text-red-400 cursor-pointer disabled:opacity-50"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/70 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <span>
-                {isAr
-                  ? 'القالب مهيأ لتقرير الأشخاص المتبقي على انتهاء رقمهم المدني ٣٠ يوماً.'
-                  : 'Template formatted for Civil IDs expiring in 30 days.'}
-              </span>
+            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/70 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
                 type="button"
-                onClick={() => setPreviewModalOpen(false)}
-                className="px-4 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
+                onClick={() => setEmailsModalOpen(false)}
+                className="px-4 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
               >
                 {isAr ? 'إغلاق' : 'Close'}
               </button>

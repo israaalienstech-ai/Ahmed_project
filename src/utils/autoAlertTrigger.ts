@@ -36,7 +36,14 @@ export async function triggerAutomaticExpiryCheck(options?: {
   if (!isSupabaseConfigured) return null;
 
   if (inFlightPromise) {
-    return inFlightPromise;
+    if (!options?.forceCheck) {
+      return inFlightPromise;
+    }
+    try {
+      await inFlightPromise;
+    } catch {
+      // ignore previous failure and proceed with fresh forced check
+    }
   }
 
   const now = Date.now();
